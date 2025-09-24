@@ -30,6 +30,26 @@ def setup_seed(seed):
 # =======================
 # Utilities
 # =======================
+def get_available_gpu():
+    """自動選擇記憶體使用率最低的GPU"""
+    if not torch.cuda.is_available():
+        return -1  # 沒有GPU可用
+    
+    gpu_count = torch.cuda.device_count()
+    if gpu_count == 0:
+        return -1
+    
+    # 檢查每個GPU的記憶體使用情況
+    gpu_memory = []
+    for i in range(gpu_count):
+        torch.cuda.set_device(i)
+        memory_allocated = torch.cuda.memory_allocated(i)
+        memory_reserved = torch.cuda.memory_reserved(i)
+        gpu_memory.append((i, memory_allocated, memory_reserved))
+    
+    # 選擇記憶體使用最少的GPU
+    available_gpu = min(gpu_memory, key=lambda x: x[1])[0]
+    return available_gpu
 
 def weights_init(m):
     classname = m.__class__.__name__
@@ -244,51 +264,45 @@ def main(obj_names, args):
 # Run pipeline
 # =======================
 if __name__ == "__main__":
-    # 解析命令列參數
+    """
+    --gpu_id -2：自動選擇最佳GPU
+    --gpu_id -1：強制使用CPU
+    --gpu_id  0：使用GPU 0（原有行為）
+    """
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('--obj_id', action='store', type=int, required=True)# 訓練類別
-    parser.add_argument('--epochs', default=25, type=int)  # 訓練回合數
+    parser.add_argument('--obj_id', action='store', type=int, required=True)
+    parser.add_argument('--epochs', default=25, type=int)
     parser.add_argument('--bs', action='store', type=int, required=True)
     parser.add_argument('--lr', action='store', type=float, required=True)
+    parser.add_argument('--gpu_id', action='store', type=int, default=-2, required=False, 
+                    help='GPU ID (-2: auto-select, -1: CPU)')
     args = parser.parse_args()
 
-    obj_batch = [['capsule'],
-                ['bottle'],
-                ['carpet'],
-                ['leather'],
-                ['pill'],
-                ['transistor'],
-                ['tile'],
-                ['cable'],
-                ['zipper'],
-                ['toothbrush'],
-                ['metal_nut'],
-                ['hazelnut'],
-                ['screw'],
-                ['grid'],
-                ['wood']
-                ]
+    # 自動選擇GPU
+    if args.gpu_id == -2:  # 自動選擇模式
+        args.gpu_id = get_available_gpu()
+        print(f"自動選擇 GPU: {args.gpu_id}")
+
+    obj_batch = [
+        ['capsule'], ['bottle'], ['carpet'], ['leather'], ['pill'],
+        ['transistor'], ['tile'], ['cable'], ['zipper'], ['toothbrush'],
+        ['metal_nut'], ['hazelnut'], ['screw'], ['grid'], ['wood']
+    ]
 
     if int(args.obj_id) == -1:
-        obj_list = ['capsule',
-                     'bottle',
-                     'carpet',
-                     'leather',
-                     'pill',
-                     'transistor',
-                     'tile',
-                     'cable',
-                     'zipper',
-                     'toothbrush',
-                     'metal_nut',
-                     'hazelnut',
-                     'screw',
-                     'grid',
-                     'wood'
-                     ]
+        obj_list = ['capsule', 'bottle', 'carpet', 'leather', 'pill',
+                    'transistor', 'tile', 'cable', 'zipper', 'toothbrush',
+                    'metal_nut', 'hazelnut', 'screw', 'grid', 'wood']
         picked_classes = obj_list
     else:
         picked_classes = obj_batch[int(args.obj_id)]
 
-    with torch.cuda.device(args.gpu_id):
+    # 根據選擇的GPU執行
+    if args.gpu_id == -1:
+        # 使用CPU
         main(picked_classes, args)
+    else:
+        # 使用GPU
+        with torch.cuda.device(args.gpu_id):
+            main(picked_classes, args)
