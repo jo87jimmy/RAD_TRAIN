@@ -1,105 +1,86 @@
 import torch
 import torch.nn as nn
 
-
-class ReconstructiveSubNetwork(nn.Module):
-
-    def __init__(self, in_channels=3, out_channels=3, base_width=128):
-        super(ReconstructiveSubNetwork, self).__init__()
-        self.encoder = EncoderReconstructive(in_channels, base_width)
-        self.decoder = DecoderReconstructive(base_width,
-                                             out_channels=out_channels)
+# ==============================================================================
+# 1. 建立一個統一的模型結構，將重建和判別網路組合起來
+#    這個結構將同時用於教師和學生模型
+# ==============================================================================
+class AnomalyDetectionModel(nn.Module):
+    def __init__(self, recon_in, recon_out, recon_base, disc_in, disc_out, disc_base):
+        super(AnomalyDetectionModel, self).__init__()
+        # 重建子網路 (對應圖中的 TRecon / SRecon)
+        self.reconstruction_subnet = ReconstructiveSubNetwork(
+            in_channels=recon_in,
+            out_channels=recon_out,
+            base_width=recon_base
+        )
+        # 判別子網路 (對應圖中的 TDisc / SDisc)
+        self.discriminator_subnet = DiscriminativeSubNetwork(
+            in_channels=disc_in,
+            out_channels=disc_out,
+            base_channels=disc_base
+        )
 
     def forward(self, x, return_feats=False):
         """
-        - return_feats: 是否返回 encoder 特徵，用於蒸餾
+        實現 Mermaid 圖中的完整前向傳播流程
         """
-        b5 = self.encoder(x)
-        # output = self.decoder(b5)
-        output = self.decoder(b5[-1])  # ⬅️ 只用最後一層 b5 做解碼
+        # --- 重建分支 ---
+        # Input --> TRecon/SRecon --> TReconOut/SReconOut
+        recon_image = self.reconstruction_subnet(x)
+
+        # --- 判別分支 ---
+        # TReconOut/SReconOut --> TCat/SCat <-- Input
+        # 注意：判別網路的輸入是原圖和重建圖的拼接
+        disc_input = torch.cat((x, recon_image), dim=1)
+
+        # TCat/SCat --> TDisc/SDisc --> (TSegMap/SSegMap, TFeatures/SFeatures)
         if return_feats:
-            return output, b5
+            seg_map, features = self.discriminator_subnet(disc_input, return_feats=True)
+            return recon_image, seg_map, features
+        else:
+            seg_map = self.discriminator_subnet(disc_input, return_feats=False)
+            return recon_image, seg_map
+
+class ReconstructiveSubNetwork(nn.Module):
+    def __init__(self, in_channels=3, out_channels=3, base_width=128):
+        super(ReconstructiveSubNetwork, self).__init__()
+        # EncoderReconstructive 的 forward 必須返回一個特徵列表
+        self.encoder = EncoderReconstructive(in_channels, base_width)
+        self.decoder = DecoderReconstructive(base_width, out_channels=out_channels)
+
+    def forward(self, x):
+        # 注意：不再需要 return_feats，因為蒸餾不在這裡進行
+        features = self.encoder(x)
+        # 解碼器只使用最後一層特徵來重建圖像
+        output = self.decoder(features[-1])
         return output
 
-
-class StudentReconstructiveSubNetwork(nn.Module):
-
-    def __init__(self,
-                 in_channels=3,
-                 out_channels=3,
-                 base_width=64,
-                 teacher_base_width=128):
-        super().__init__()
-        self.encoder = EncoderReconstructive(in_channels, base_width)
-        self.decoder = DecoderReconstructive(base_width,
-                                             out_channels=out_channels)
-
-        # 特徵對齊層：將學生特徵映射到教師特徵維度
-        # self.feature_align = nn.Conv2d(base_width * 8, teacher_base_width * 8,
-        #                                1)
-
-        # 每一層都需要 feature align
-        # 用 encoder.out_channels 建對齊層
-        student_channels = self.encoder.out_channels  # e.g. [64, 128, 256, 512, 512]
-        teacher_channels = [
-            c * (teacher_base_width // base_width) for c in student_channels
-        ]  # e.g. [128, 256, 512, 1024, 1024]
-
-        self.feature_aligns = nn.ModuleList([
-            nn.Conv2d(s_c, t_c, 1)
-            for s_c, t_c in zip(student_channels, teacher_channels)
-        ])
-
-    def forward(self, x):
-        """ output: 確保學生網路本身的重建能力
-            aligned_feats: 將學生網路的中間特徵與教師網路的對應層進行對齊，以便於：
-            特徵蒸餾損失計算
-            中間層特徵的相似度比較
-            多尺度知識傳遞"""
-        #編碼器輸出 feats (5個不同解析度的特徵圖)，
-        # feats[0].shape: torch.Size([4, 64, 112, 112])# 1/2分辨率，feats[1].shape: torch.Size([4, 128, 56, 56])# 1/4分辨率...
-        feats = self.encoder(x)  # list: [b1, b2, b3, b4, b5]
-        #對齊後的多尺度特徵，aligned_feats[0]: (batch_size, 128, H/2, W/2),aligned_feats[1]: (batch_size, 256, H/4, W/4)...
-        aligned_feats = [
-            align(f) for align, f in zip(self.feature_aligns, feats)
-        ]
-        output = self.decoder(feats[-1])  # decoder 只用最後一層 b5，重建输出
-        return output, aligned_feats
-
-        # feats = self.encoder(x)  # 學生編碼器輸出的特徵
-        # aligned_feats = self.feature_align(feats)  # 維度對齊，用來和教師特徵做蒸餾 loss
-        # output = self.decoder(feats)  # 解碼器輸入仍是原始學生特徵
-        # return output, aligned_feats
-
-
 class DiscriminativeSubNetwork(nn.Module):
-
-    def __init__(self,
-                 in_channels=3,
-                 out_channels=3,
-                 base_channels=64,
-                 out_features=False):
+    def __init__(self, in_channels=6, out_channels=2, base_channels=64):
         super(DiscriminativeSubNetwork, self).__init__()
-        base_width = base_channels
-        self.encoder_segment = EncoderDiscriminative(in_channels, base_width)
-        self.decoder_segment = DecoderDiscriminative(base_width,
-                                                     out_channels=out_channels)
-        #self.segment_act = torch.nn.Sigmoid()
-        self.out_features = out_features
+        # 注意：in_channels 現在是 6 (例如 3通道原圖 + 3通道重建圖)
+        # 注意：out_channels 現在是 2 (異常/正常的 logits)
+        self.encoder_segment = EncoderDiscriminative(in_channels, base_channels)
+        self.decoder_segment = DecoderDiscriminative(base_channels, out_channels=out_channels)
 
-    def forward(self, x):
+    def forward(self, x, return_feats=False):
+        # 根據圖表，這裡提取多層次特徵圖
         b1, b2, b3, b4, b5, b6 = self.encoder_segment(x)
         output_segment = self.decoder_segment(b1, b2, b3, b4, b5, b6)
-        if self.out_features:
-            return output_segment, b2, b3, b4, b5, b6
+
+        if return_feats:
+            # 返回分割圖和用於蒸餾的中間特徵
+            features = [b1, b2, b3, b4, b5, b6]
+            return output_segment, features
         else:
             return output_segment
 
 
 class EncoderDiscriminative(nn.Module):
-
     def __init__(self, in_channels, base_width):
         super(EncoderDiscriminative, self).__init__()
+        # ... (內部程式碼與您提供的相同) ...
         self.block1 = nn.Sequential(
             nn.Conv2d(in_channels, base_width, kernel_size=3, padding=1),
             nn.BatchNorm2d(base_width), nn.ReLU(inplace=True),
@@ -112,7 +93,7 @@ class EncoderDiscriminative(nn.Module):
             nn.Conv2d(base_width * 2, base_width * 2, kernel_size=3,
                       padding=1), nn.BatchNorm2d(base_width * 2),
             nn.ReLU(inplace=True))
-        self.mp2 = nn.Sequential(nn.MaxPool2d(2))
+        self.mp2 = nn.Sequential(nn.MaxPool2d(2)) # <<<--- BUG 修正：這裡原來是 self.mp3
         self.block3 = nn.Sequential(
             nn.Conv2d(base_width * 2, base_width * 4, kernel_size=3,
                       padding=1), nn.BatchNorm2d(base_width * 4),
@@ -136,7 +117,6 @@ class EncoderDiscriminative(nn.Module):
             nn.Conv2d(base_width * 8, base_width * 8, kernel_size=3,
                       padding=1), nn.BatchNorm2d(base_width * 8),
             nn.ReLU(inplace=True))
-
         self.mp5 = nn.Sequential(nn.MaxPool2d(2))
         self.block6 = nn.Sequential(
             nn.Conv2d(base_width * 8, base_width * 8, kernel_size=3,
@@ -150,7 +130,7 @@ class EncoderDiscriminative(nn.Module):
         b1 = self.block1(x)
         mp1 = self.mp1(b1)
         b2 = self.block2(mp1)
-        mp2 = self.mp3(b2)
+        mp2 = self.mp2(b2) # <<<--- BUG 修正：這裡原來是 self.mp3
         b3 = self.block3(mp2)
         mp3 = self.mp3(b3)
         b4 = self.block4(mp3)
