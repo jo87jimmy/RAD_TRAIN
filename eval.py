@@ -3,11 +3,9 @@ import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
+from model_unet import AnomalyDetectionModel
 
-# 假設 AnomalyDetectionModel 類已經在此處定義
-# from model_def import AnomalyDetectionModel, ...
-
-# --- 1. 準備工作：載入模型與權重 ---
+# --- 載入模型與權重 ---
 
 # 設定參數 (必須與訓練時學生模型的參數一致)
 IMG_CHANNELS = 3
@@ -27,7 +25,7 @@ student_model = AnomalyDetectionModel(
 ).to(DEVICE)
 
 # 載入訓練好的學生模型權重
-model_weights_path = 'path/to/your/checkpoints/student_model.pckl' # ⬅️ 修改為您的權重路徑
+model_weights_path = './student_model_checkpoints/student_model.pckl' # ⬅️ 修改為您的權重路徑
 student_model.load_state_dict(torch.load(model_weights_path, map_location=DEVICE))
 
 # --- 2. 設定為評估模式 ---
@@ -65,7 +63,7 @@ def predict_anomaly(model, image_path, device):
         recon_image_tensor, seg_map_logits = model(image_tensor, return_feats=False)
 
     # --- 5. 後處理輸出 ---
-    
+
     # a. 處理分割圖
     # seg_map_logits 的形狀是 [1, 2, H, W]，其中 2 是類別數 (0:正常, 1:異常)
     # 使用 softmax 將 logits 轉換為機率
@@ -75,7 +73,7 @@ def predict_anomaly(model, image_path, device):
 
     # b. 將 Tensor 轉換為可用於顯示的 NumPy Array
     original_image_np = np.array(image.resize((224, 224)))
-    
+
     # 反正規化重建圖像以便顯示
     recon_image_np = recon_image_tensor.squeeze().cpu().numpy().transpose(1, 2, 0)
     mean = np.array([0.485, 0.456, 0.406])

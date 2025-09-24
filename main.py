@@ -34,11 +34,11 @@ def get_available_gpu():
     """自動選擇記憶體使用率最低的GPU"""
     if not torch.cuda.is_available():
         return -1  # 沒有GPU可用
-    
+
     gpu_count = torch.cuda.device_count()
     if gpu_count == 0:
         return -1
-    
+
     # 檢查每個GPU的記憶體使用情況
     gpu_memory = []
     for i in range(gpu_count):
@@ -46,7 +46,7 @@ def get_available_gpu():
         memory_allocated = torch.cuda.memory_allocated(i)
         memory_reserved = torch.cuda.memory_reserved(i)
         gpu_memory.append((i, memory_allocated, memory_reserved))
-    
+
     # 選擇記憶體使用最少的GPU
     available_gpu = min(gpu_memory, key=lambda x: x[1])[0]
     return available_gpu
@@ -278,7 +278,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', default=25, type=int)
     parser.add_argument('--bs', action='store', type=int, required=True)
     parser.add_argument('--lr', action='store', type=float, required=True)
-    parser.add_argument('--gpu_id', action='store', type=int, default=-2, required=False, 
+    parser.add_argument('--gpu_id', action='store', type=int, default=-2, required=False,
                     help='GPU ID (-2: auto-select, -1: CPU)')
     args = parser.parse_args()
 
