@@ -16,7 +16,8 @@ from sklearn.metrics import roc_auc_score
 from loss import FocalLoss, SSIM
 from model_unet import AnomalyDetectionModel
 from data_loader import MVTecDRAEMTrainDataset
-
+import matplotlib.pyplot as plt
+import torchvision.transforms as transforms
 
 def setup_seed(seed):
     # 設定隨機種子，確保實驗可重現
@@ -58,6 +59,58 @@ def weights_init(m):
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
+
+def predict_and_visualize_heatmap(model, image_path, device,save_path):
+    # ... (前面的預處理部分保持不變) ...
+    preprocess = transforms.Compose([...])
+    image = Image.open(image_path).convert("RGB")
+    image_tensor = preprocess(image).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        recon_image_tensor, seg_map_logits = model(image_tensor, return_feats=False)
+
+    # --- 關鍵偵錯步驟 ---
+    # 1. 將 logits 轉換為機率
+    seg_map_probs = torch.softmax(seg_map_logits, dim=1)
+
+    # 2. 提取 "異常類別" 的機率圖
+    # 假設索引 1 代表 "異常" (索引 0 代表 "正常")
+    # 如果您的標籤定義相反，請將 [0, 1, :, :] 改為 [0, 0, :, :]
+    anomaly_heatmap = seg_map_probs[0, 1, :, :].cpu().numpy()
+
+    # 3. 產生最終的二值化遮罩 (用於比較)
+    anomaly_mask = np.argmax(seg_map_probs.cpu().numpy(), axis=1).squeeze()
+
+    # ... (反正規化 recon_image_np 的部分保持不變) ...
+    original_image_np = np.array(image.resize((224, 224)))
+    # ...
+
+    # --- 可視化 ---
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    axes[0].imshow(original_image_np)
+    axes[0].set_title('Original Image')
+    axes[0].axis('off')
+
+    # 顯示原始的異常熱圖
+    im = axes[1].imshow(anomaly_heatmap, cmap='viridis') # 使用 viridis 或 jet 色彩映射
+    axes[1].set_title('Anomaly Probability Heatmap')
+    axes[1].axis('off')
+    fig.colorbar(im, ax=axes[1]) # 加上顏色條以觀察機率範圍
+
+    # 顯示最終的二值化遮罩
+    axes[2].imshow(original_image_np)
+    axes[2].imshow(anomaly_mask, cmap='jet', alpha=0.5)
+    axes[2].set_title('Final ArgMax Mask')
+    axes[2].axis('off')
+    print(f"Saving out_image to: {save_path}")  # 除錯訊息
+    plt.savefig(save_path)
+
+    plt.show()
+
+    # 打印一些數值幫助判斷
+    print(f"Heatmap Min Value: {anomaly_heatmap.min()}")
+    print(f"Heatmap Max Value: {anomaly_heatmap.max()}")
+    print(f"Heatmap Mean Value: {anomaly_heatmap.mean()}")
 
 
 # =======================
@@ -253,6 +306,7 @@ def main(obj_names, args):
                 writer.add_scalar("Train/Feature_Distillation_Loss", feat_distill_loss.item(), n_iter)
                 writer.add_scalar("Train/Segmentation_Distillation_Loss", seg_distill_loss.item(), n_iter)
                 writer.add_scalar("Train/Original_Segmentation_Loss", orig_seg_loss.item(), n_iter)
+                predict_and_visualize_heatmap(student_model, input_image, device,save_root)
                 n_iter += 1
 
             # 每個 epoch 結束後更新學習率並保存模型
