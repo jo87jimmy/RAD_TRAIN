@@ -88,7 +88,7 @@ def main(obj_names, args):
             disc_base=128    # 教師判別網路較寬
         ).to(device)
         # 將教師模型的參數載入至模型中，使用 checkpoint 中的 'reconstructive' 欄位
-        teacher_model.load_state_dict(teacher_ckpt)
+        teacher_model.load_state_dict(teacher_ckpt,strict=False)
         # 將教師模型設為評估模式，停用 Dropout、BatchNorm 等訓練專用機制
         teacher_model.eval()
 
