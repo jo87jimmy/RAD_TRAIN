@@ -14,7 +14,7 @@ import argparse  # 命令列參數處理
 import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from loss import FocalLoss, SSIM
-from model_unet import ReconstructiveSubNetwork, StudentReconstructiveSubNetwork, DiscriminativeSubNetwork,AnomalyDetectionModel
+from model_unet import AnomalyDetectionModel
 from data_loader import MVTecDRAEMTrainDataset
 
 
