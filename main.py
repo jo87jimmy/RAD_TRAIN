@@ -87,6 +87,9 @@ def main(obj_names, args):
             disc_out=SEG_CLASSES,
             disc_base=128    # 教師判別網路較寬
         ).to(device)
+        # 檢查 checkpoint 結構
+        print("Checkpoint keys:", teacher_ckpt.keys())
+
         # 將教師模型的參數載入至模型中，使用 checkpoint 中的 'reconstructive' 欄位
         teacher_model.load_state_dict(teacher_ckpt,strict=False)
         # 將教師模型設為評估模式，停用 Dropout、BatchNorm 等訓練專用機制
@@ -132,8 +135,8 @@ def main(obj_names, args):
             last_epoch=-1)
         # 定義損失函數
         # 這裡使用 L2 損失（均方誤差）、SSIM 損失與 Focal Loss
-        loss_l2 = torch.nn.modules.loss.MSELoss()
-        loss_ssim = SSIM()
+        # loss_l2 = torch.nn.modules.loss.MSELoss()
+        # loss_ssim = SSIM()
         loss_focal = FocalLoss()
 
         path = f'./mvtec'  # 訓練資料路徑
