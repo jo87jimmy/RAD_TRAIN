@@ -68,10 +68,10 @@ def main(obj_names, args):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     for obj_name in obj_names:
         # Load teacher
-        # 載入教師模型的檢查點（checkpoint）檔案，並指定載入到的裝置（如 GPU 或 CPU）
-        path_run_name = f'./DRAEM_seg_large_ae_large_0.0001_800_bs8_'+obj_name+'_'
+        path_run_name = f'./DRAEM_checkpoints/DRAEM_seg_large_ae_large_0.0001_800_bs8_'+obj_name+'_'
+        checkpoint_path = path_run_name + ".pckl"
         teacher_ckpt = torch.load(
-            path_run_name+".pckl",
+            checkpoint_path,
             map_location=device,
             weights_only=True)
         # 假設是處理3通道的RGB圖像
