@@ -250,13 +250,14 @@ def main(obj_names, args):
                 input_image = sample_batched["image"].to(device)
                 # 真實的異常遮罩，用於計算原始分割損失
                 ground_truth_mask = sample_batched["anomaly_mask"].to(device)
+                aug_gray_batch = sample_batched["augmented_image"].to(device)
 
                 # --- 教師網路前向傳播 (不計算梯度) ---
                 with torch.no_grad():
-                   _, teacher_seg_map, teacher_features = teacher_model(input_image, return_feats=True)
+                   _, teacher_seg_map, teacher_features = teacher_model(aug_gray_batch, return_feats=True)
 
                 # --- 學生網路前向傳播 ---
-                _, student_seg_map, student_features = student_model(input_image, return_feats=True)
+                _, student_seg_map, student_features = student_model(aug_gray_batch, return_feats=True)
 
                 # --- 計算損失函數 ---
 
@@ -306,7 +307,7 @@ def main(obj_names, args):
                 writer.add_scalar("Train/Feature_Distillation_Loss", feat_distill_loss.item(), n_iter)
                 writer.add_scalar("Train/Segmentation_Distillation_Loss", seg_distill_loss.item(), n_iter)
                 writer.add_scalar("Train/Original_Segmentation_Loss", orig_seg_loss.item(), n_iter)
-                predict_and_visualize_heatmap(student_model, input_image, device,save_root)
+                predict_and_visualize_heatmap(student_model, sample_batched["image"], device,save_root)
                 n_iter += 1
 
             # 每個 epoch 結束後更新學習率並保存模型
