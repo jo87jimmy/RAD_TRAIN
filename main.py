@@ -60,12 +60,47 @@ def weights_init(m):
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
 
-def predict_and_visualize_heatmap(model, image_path, device,save_path):
-    # ... (前面的預處理部分保持不變) ...
-    preprocess = transforms.Compose([...])
-    image = Image.open(image_path).convert("RGB")
-    image_tensor = preprocess(image).unsqueeze(0).to(device)
+def predict_and_visualize_heatmap(model, image_input, device, save_path):
+    """
+    修改後的函數，能夠同時處理文件路徑和圖像 Tensor
+    
+    Args:
+        model: 訓練好的模型
+        image_input: 可以是文件路徑字符串或圖像張量 [batch_size, channels, height, width]
+        device: 設備
+        save_path: 保存路徑
+    """
+    # 定義預處理轉換
+    preprocess = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    
+    # 判斷輸入類型並進行相應處理
+    if isinstance(image_input, str):
+        # 輸入是文件路徑
+        image = Image.open(image_input).convert("RGB")
+        original_image_np = np.array(image.resize((224, 224)))
+        image_tensor = preprocess(image).unsqueeze(0).to(device)
+        batch_size = 1
+    else:
+        # 輸入是 Tensor
+        image_tensor = image_input.to(device)
+        batch_size = image_tensor.size(0)
+        
+        # 將 Tensor 轉換回 PIL 圖像用於可視化
+        # 注意：這裡假設 Tensor 是 [C, H, W] 或 [B, C, H, W] 格式，且值在 [0,1] 或已歸一化
+        if batch_size == 1:
+            img_np = image_tensor[0].cpu().permute(1, 2, 0).numpy()
+        else:
+            img_np = image_tensor[0].cpu().permute(1, 2, 0).numpy()
+        
+        # 反正規化並轉換到 [0,255] 範圍
+        img_np = (img_np - img_np.min()) / (img_np.max() - img_np.min()) * 255
+        original_image_np = img_np.astype('uint8')
 
+    model.eval()
     with torch.no_grad():
         recon_image_tensor, seg_map_logits = model(image_tensor, return_feats=False)
 
@@ -75,42 +110,41 @@ def predict_and_visualize_heatmap(model, image_path, device,save_path):
 
     # 2. 提取 "異常類別" 的機率圖
     # 假設索引 1 代表 "異常" (索引 0 代表 "正常")
-    # 如果您的標籤定義相反，請將 [0, 1, :, :] 改為 [0, 0, :, :]
     anomaly_heatmap = seg_map_probs[0, 1, :, :].cpu().numpy()
 
     # 3. 產生最終的二值化遮罩 (用於比較)
     anomaly_mask = np.argmax(seg_map_probs.cpu().numpy(), axis=1).squeeze()
 
-    # ... (反正規化 recon_image_np 的部分保持不變) ...
-    original_image_np = np.array(image.resize((224, 224)))
-    # ...
-
     # --- 可視化 ---
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    
+    # 顯示原始圖像
     axes[0].imshow(original_image_np)
     axes[0].set_title('Original Image')
     axes[0].axis('off')
 
-    # 顯示原始的異常熱圖
-    im = axes[1].imshow(anomaly_heatmap, cmap='viridis') # 使用 viridis 或 jet 色彩映射
+    # 顯示異常熱圖
+    im = axes[1].imshow(anomaly_heatmap, cmap='viridis')
     axes[1].set_title('Anomaly Probability Heatmap')
     axes[1].axis('off')
-    fig.colorbar(im, ax=axes[1]) # 加上顏色條以觀察機率範圍
+    fig.colorbar(im, ax=axes[1])
 
     # 顯示最終的二值化遮罩
     axes[2].imshow(original_image_np)
     axes[2].imshow(anomaly_mask, cmap='jet', alpha=0.5)
     axes[2].set_title('Final ArgMax Mask')
     axes[2].axis('off')
-    print(f"Saving out_image to: {save_path}")  # 除錯訊息
+    
+    print(f"Saving out_image to: {save_path}")
     plt.savefig(save_path)
-
-    plt.show()
+    plt.close(fig)  # 關閉圖形以避免記憶體洩漏
 
     # 打印一些數值幫助判斷
     print(f"Heatmap Min Value: {anomaly_heatmap.min()}")
     print(f"Heatmap Max Value: {anomaly_heatmap.max()}")
     print(f"Heatmap Mean Value: {anomaly_heatmap.mean()}")
+    
+    model.train()  # 恢復訓練模式
 
 
 # =======================
