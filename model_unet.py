@@ -5,42 +5,47 @@ import torch.nn as nn
 # 1. 建立一個統一的模型結構，將重建和判別網路組合起來
 #    這個結構將同時用於教師和學生模型
 # ==============================================================================
-class AnomalyDetectionModel(nn.Module):
-    def __init__(self, recon_in, recon_out, recon_base, disc_in, disc_out, disc_base):
-        super(AnomalyDetectionModel, self).__init__()
-        # 重建子網路 (對應圖中的 TRecon / SRecon)
-        self.reconstruction_subnet = ReconstructiveSubNetwork(
-            in_channels=recon_in,
-            out_channels=recon_out,
-            base_width=recon_base
-        )
-        # 判別子網路 (對應圖中的 TDisc / SDisc)
-        self.discriminator_subnet = DiscriminativeSubNetwork(
-            in_channels=disc_in,
-            out_channels=disc_out,
-            base_channels=disc_base
-        )
+class AnomalyDetectionModel(nn.Module):  
+    def __init__(self, recon_in, recon_out, recon_base, disc_in, disc_out, disc_base):  
+        super(AnomalyDetectionModel, self).__init__()  
+        # 初始化異常檢測模型，包含重建子網路與判別子網路  
 
-    def forward(self, x, return_feats=False):
-        """
-        實現 Mermaid 圖中的完整前向傳播流程
-        """
-        # --- 重建分支 ---
-        # Input --> TRecon/SRecon --> TReconOut/SReconOut
-        recon_image = self.reconstruction_subnet(x)
+        # --- 重建子網路 (對應圖中的 TRecon / SRecon) ---  
+        self.reconstruction_subnet = ReconstructiveSubNetwork(  
+            in_channels=recon_in,   # 重建子網路輸入通道數  
+            out_channels=recon_out, # 重建子網路輸出通道數  
+            base_width=recon_base   # 重建子網路基礎通道寬度  
+        )  
 
-        # --- 判別分支 ---
-        # TReconOut/SReconOut --> TCat/SCat <-- Input
-        # 注意：判別網路的輸入是原圖和重建圖的拼接
-        disc_input = torch.cat((x, recon_image), dim=1)
+        # --- 判別子網路 (對應圖中的 TDisc / SDisc) ---  
+        self.discriminator_subnet = DiscriminativeSubNetwork(  
+            in_channels=disc_in,    # 判別子網路輸入通道數  
+            out_channels=disc_out,  # 判別子網路輸出通道數 (通常是 anomaly map)  
+            base_channels=disc_base # 判別子網路基礎通道寬度  
+        )  
 
-        # TCat/SCat --> TDisc/SDisc --> (TSegMap/SSegMap, TFeatures/SFeatures)
-        if return_feats:
-            seg_map, features = self.discriminator_subnet(disc_input, return_feats=True)
-            return recon_image, seg_map, features
-        else:
-            seg_map = self.discriminator_subnet(disc_input, return_feats=False)
-            return recon_image, seg_map
+    def forward(self, x, return_feats=False):  
+        # 定義前向傳播 (forward pass)  
+        
+        # --- 重建分支 ---  
+        # Input --> TRecon/SRecon --> TReconOut/SReconOut  
+        recon_image = self.reconstruction_subnet(x)  # 經過重建子網路，得到重建影像  
+
+        # --- 判別分支 ---  
+        # TReconOut/SReconOut --> TCat/SCat <-- Input  
+        # 注意：判別網路的輸入是原圖與重建圖的拼接 (在通道維度上拼接)  
+        disc_input = torch.cat((x, recon_image), dim=1)  
+
+        # TCat/SCat --> TDisc/SDisc --> (TSegMap/SSegMap, TFeatures/SFeatures)  
+        if return_feats:  
+            # 如果需要返回特徵 (features)，則輸出分割圖與中間特徵  
+            seg_map, features = self.discriminator_subnet(disc_input, return_feats=True)  
+            return recon_image, seg_map, features  
+        else:  
+            # 僅輸出分割圖 (異常區域對應的 segmentation map)  
+            seg_map = self.discriminator_subnet(disc_input, return_feats=False)  
+            return recon_image, seg_map  
+
 
 class ReconstructiveSubNetwork(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, base_width=128):

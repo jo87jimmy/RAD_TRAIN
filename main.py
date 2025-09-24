@@ -161,6 +161,8 @@ def main(obj_names, args):
             checkpoint_path,
             map_location=device,
             weights_only=True)
+        #todo 缺了重建網路
+        
         # 假設是處理3通道的RGB圖像
         IMG_CHANNELS = 3
         # 分割任務是二分類 (異常 vs. 正常)
