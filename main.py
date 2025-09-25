@@ -214,7 +214,7 @@ def main(obj_names, args):
             recon_base=128,  # 教師重建網路較寬
             disc_in=IMG_CHANNELS * 2,  # 原圖+重建圖
             disc_out=SEG_CLASSES,
-            disc_base=128  # 教師判別網路較寬
+            disc_base=64  # 教師判別網路較寬
         ).to(device)
         # # 檢查 checkpoint 結構
         # print("Checkpoint keys:", full_ckpt.keys())
