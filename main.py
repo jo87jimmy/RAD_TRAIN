@@ -18,6 +18,7 @@ from model_unet import AnomalyDetectionModel
 from data_loader import MVTecDRAEMTrainDataset
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from datetime import datetime
 
 
 def setup_seed(seed):
@@ -142,9 +143,10 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
     axes[2].imshow(anomaly_mask, cmap='jet', alpha=0.5)
     axes[2].set_title('Final ArgMax Mask')
     axes[2].axis('off')
-
-    print(f"Saving out_image to: {save_path}")
-    plt.savefig(save_path)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path_cv = f"{save_path}/out_mask_cv_{timestamp}.png"
+    print(f"Saving out_image to: {save_path_cv}")
+    plt.savefig(save_path_cv)
     plt.close(fig)  # 關閉圖形以避免記憶體洩漏
 
     # 打印一些數值幫助判斷
