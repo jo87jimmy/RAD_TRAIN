@@ -119,7 +119,9 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
     anomaly_heatmap = seg_map_probs[0, 1, :, :].cpu().numpy()
 
     # 3. 產生最終的二值化遮罩 (用於比較)
-    anomaly_mask = np.argmax(seg_map_probs.cpu().numpy(), axis=1).squeeze()
+    masks = np.argmax(seg_map_probs.cpu().numpy(), axis=1)  # (B, H, W)
+    anomaly_mask = masks[0]  # 取第一張 (H, W)
+    # anomaly_mask = np.argmax(seg_map_probs.cpu().numpy(), axis=1).squeeze()
 
     # --- 可視化 ---
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
