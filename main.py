@@ -165,11 +165,20 @@ def main(obj_names, args):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     for obj_name in obj_names:
         # Load teacher
-        path_run_name = f'./DRAEM_checkpoints/DRAEM_seg_large_ae_large_0.0001_800_bs8_' + obj_name + '_'
-        checkpoint_path = path_run_name + ".pckl"
-        teacher_ckpt = torch.load(checkpoint_path,
-                                  map_location=device,
-                                  weights_only=True)
+        recon_path = f'./DRAEM_checkpoints/DRAEM_seg_large_ae_large_0.0001_800_bs8_' + obj_name + '_'
+        checkpoint_path = recon_path + ".pckl"
+        teacher_recon_ckpt = torch.load(checkpoint_path,
+                                        map_location=device,
+                                        weights_only=True)
+        seg_path = f'./DRAEM_checkpoints/DRAEM_seg_large_ae_large_0.0001_800_bs8_' + obj_name + '_seg'
+        checkpoint_path = seg_path + ".pckl"
+        teacher_seg_ckpt = torch.load(checkpoint_path,
+                                      map_location=device,
+                                      weights_only=True)
+        # 合併兩個 state_dict
+        full_ckpt = {}
+        full_ckpt.update(teacher_recon_ckpt)  # encoder/decoder 權重
+        full_ckpt.update(teacher_seg_ckpt)  # discriminator 權重
         # 假設是處理3通道的RGB圖像
         IMG_CHANNELS = 3
         # 分割任務是二分類 (異常 vs. 正常)
@@ -184,10 +193,10 @@ def main(obj_names, args):
             disc_base=128  # 教師判別網路較寬
         ).to(device)
         # 檢查 checkpoint 結構
-        print("Checkpoint keys:", teacher_ckpt.keys())
+        print("Checkpoint keys:", full_ckpt.keys())
 
         # 將教師模型的參數載入至模型中，使用 checkpoint 中的 'reconstructive' 欄位
-        teacher_model.load_state_dict(teacher_ckpt, strict=False)
+        teacher_model.load_state_dict(full_ckpt, strict=False)
         # 將教師模型設為評估模式，停用 Dropout、BatchNorm 等訓練專用機制
         teacher_model.eval()
 
