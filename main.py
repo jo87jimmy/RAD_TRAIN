@@ -19,6 +19,7 @@ from data_loader import MVTecDRAEMTrainDataset
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 
+
 def setup_seed(seed):
     # 設定隨機種子，確保實驗可重現
     torch.manual_seed(seed)
@@ -27,6 +28,7 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True  # 保證結果可重現
     torch.backends.cudnn.benchmark = False  # 關閉自動最佳化搜尋
+
 
 # =======================
 # Utilities
@@ -52,6 +54,7 @@ def get_available_gpu():
     available_gpu = min(gpu_memory, key=lambda x: x[1])[0]
     return available_gpu
 
+
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -59,6 +62,7 @@ def weights_init(m):
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
+
 
 def predict_and_visualize_heatmap(model, image_input, device, save_path):
     """
@@ -74,9 +78,10 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
     preprocess = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
     ])
-    
+
     # 判斷輸入類型並進行相應處理
     if isinstance(image_input, str):
         # 輸入是文件路徑
@@ -88,21 +93,22 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
         # 輸入是 Tensor
         image_tensor = image_input.to(device)
         batch_size = image_tensor.size(0)
-        
+
         # 將 Tensor 轉換回 PIL 圖像用於可視化
         # 注意：這裡假設 Tensor 是 [C, H, W] 或 [B, C, H, W] 格式，且值在 [0,1] 或已歸一化
         if batch_size == 1:
             img_np = image_tensor[0].cpu().permute(1, 2, 0).numpy()
         else:
             img_np = image_tensor[0].cpu().permute(1, 2, 0).numpy()
-        
+
         # 反正規化並轉換到 [0,255] 範圍
         img_np = (img_np - img_np.min()) / (img_np.max() - img_np.min()) * 255
         original_image_np = img_np.astype('uint8')
 
     model.eval()
     with torch.no_grad():
-        recon_image_tensor, seg_map_logits = model(image_tensor, return_feats=False)
+        recon_image_tensor, seg_map_logits = model(image_tensor,
+                                                   return_feats=False)
 
     # --- 關鍵偵錯步驟 ---
     # 1. 將 logits 轉換為機率
@@ -117,7 +123,7 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
 
     # --- 可視化 ---
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    
+
     # 顯示原始圖像
     axes[0].imshow(original_image_np)
     axes[0].set_title('Original Image')
@@ -134,7 +140,7 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
     axes[2].imshow(anomaly_mask, cmap='jet', alpha=0.5)
     axes[2].set_title('Final ArgMax Mask')
     axes[2].axis('off')
-    
+
     print(f"Saving out_image to: {save_path}")
     plt.savefig(save_path)
     plt.close(fig)  # 關閉圖形以避免記憶體洩漏
@@ -143,7 +149,7 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
     print(f"Heatmap Min Value: {anomaly_heatmap.min()}")
     print(f"Heatmap Max Value: {anomaly_heatmap.max()}")
     print(f"Heatmap Mean Value: {anomaly_heatmap.mean()}")
-    
+
     model.train()  # 恢復訓練模式
 
 
@@ -155,14 +161,11 @@ def main(obj_names, args):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     for obj_name in obj_names:
         # Load teacher
-        path_run_name = f'./DRAEM_checkpoints/DRAEM_seg_large_ae_large_0.0001_800_bs8_'+obj_name+'_'
+        path_run_name = f'./DRAEM_checkpoints/DRAEM_seg_large_ae_large_0.0001_800_bs8_' + obj_name + '_'
         checkpoint_path = path_run_name + ".pckl"
-        teacher_ckpt = torch.load(
-            checkpoint_path,
-            map_location=device,
-            weights_only=True)
-        #todo 缺了重建網路
-        
+        teacher_ckpt = torch.load(checkpoint_path,
+                                  map_location=device,
+                                  weights_only=True)
         # 假設是處理3通道的RGB圖像
         IMG_CHANNELS = 3
         # 分割任務是二分類 (異常 vs. 正常)
@@ -172,15 +175,15 @@ def main(obj_names, args):
             recon_in=IMG_CHANNELS,
             recon_out=IMG_CHANNELS,
             recon_base=128,  # 教師重建網路較寬
-            disc_in=IMG_CHANNELS * 2, # 原圖+重建圖
+            disc_in=IMG_CHANNELS * 2,  # 原圖+重建圖
             disc_out=SEG_CLASSES,
-            disc_base=128    # 教師判別網路較寬
+            disc_base=128  # 教師判別網路較寬
         ).to(device)
         # 檢查 checkpoint 結構
         print("Checkpoint keys:", teacher_ckpt.keys())
 
         # 將教師模型的參數載入至模型中，使用 checkpoint 中的 'reconstructive' 欄位
-        teacher_model.load_state_dict(teacher_ckpt,strict=False)
+        teacher_model.load_state_dict(teacher_ckpt, strict=False)
         # 將教師模型設為評估模式，停用 Dropout、BatchNorm 等訓練專用機制
         teacher_model.eval()
 
@@ -193,10 +196,10 @@ def main(obj_names, args):
         student_model = AnomalyDetectionModel(
             recon_in=IMG_CHANNELS,
             recon_out=IMG_CHANNELS,
-            recon_base=64,   # 學生重建網路較窄
-            disc_in=IMG_CHANNELS * 2, # 原圖+重建圖
+            recon_base=64,  # 學生重建網路較窄
+            disc_in=IMG_CHANNELS * 2,  # 原圖+重建圖
             disc_out=SEG_CLASSES,
-            disc_base=64     # 學生判別網路較窄
+            disc_base=64  # 學生判別網路較窄
         ).to(device)
         # --- 特徵對齊層 ---
         # 因為判別網路的特徵維度不同，需要對齊層來計算蒸餾損失
@@ -213,10 +216,9 @@ def main(obj_names, args):
         student_model.apply(weights_init)
 
         # 假設 optimizer 只優化 student_model 和 feature_aligns 的參數
-        optimizer = torch.optim.Adam(
-            list(student_model.parameters()) + list(feature_aligns.parameters()),
-            lr=args.lr
-        )
+        optimizer = torch.optim.Adam(list(student_model.parameters()) +
+                                     list(feature_aligns.parameters()),
+                                     lr=args.lr)
 
         scheduler = optim.lr_scheduler.MultiStepLR(
             optimizer, [args.epochs * 0.8, args.epochs * 0.9],
@@ -234,13 +236,15 @@ def main(obj_names, args):
         # 載入訓練資料集，指定根目錄、類別、資料切分方式為 "train"，並將影像尺寸調整為 256x256
         #python train_DRAEM.py --gpu_id 0 --obj_id -1 --lr 0.0001 --bs 8 --epochs 700 --data_path ./datasets/mvtec/ --anomaly_source_path ./datasets/dtd/images/ --checkpoint_path ./checkpoints/ --log_path ./logs/
 
-        train_dataset = MVTecDRAEMTrainDataset(root_dir=path + f'/{obj_name}/train/good/',anomaly_source_path=path_dtd,
-                                    resize_shape=[256, 256])
+        train_dataset = MVTecDRAEMTrainDataset(root_dir=path +
+                                               f'/{obj_name}/train/good/',
+                                               anomaly_source_path=path_dtd,
+                                               resize_shape=[256, 256])
         # 建立訓練資料的 DataLoader，設定每批次大小為 16，打亂資料順序，使用 4 個執行緒加速載入
         train_loader = DataLoader(train_dataset,
-                                batch_size=args.bs,
-                                shuffle=True,
-                                num_workers=4)
+                                  batch_size=args.bs,
+                                  shuffle=True,
+                                  num_workers=4)
         # 主儲存資料夾路徑
         save_root = "./save_files"
 
@@ -290,10 +294,12 @@ def main(obj_names, args):
 
                 # --- 教師網路前向傳播 (不計算梯度) ---
                 with torch.no_grad():
-                   _, teacher_seg_map, teacher_features = teacher_model(aug_gray_batch, return_feats=True)
+                    _, teacher_seg_map, teacher_features = teacher_model(
+                        aug_gray_batch, return_feats=True)
 
                 # --- 學生網路前向傳播 ---
-                _, student_seg_map, student_features = student_model(aug_gray_batch, return_feats=True)
+                _, student_seg_map, student_features = student_model(
+                    aug_gray_batch, return_feats=True)
 
                 # --- 計算損失函數 ---
 
@@ -301,11 +307,11 @@ def main(obj_names, args):
                 feat_distill_loss = 0.0
                 for i in range(len(student_features)):
                     # 將學生特徵對齊到教師特徵的維度
-                    aligned_student_feat = feature_aligns[i](student_features[i])
+                    aligned_student_feat = feature_aligns[i](
+                        student_features[i])
                     feat_distill_loss += F.mse_loss(
                         F.normalize(aligned_student_feat, p=2, dim=1),
-                        F.normalize(teacher_features[i], p=2, dim=1)
-                    )
+                        F.normalize(teacher_features[i], p=2, dim=1))
 
                 # 2. 分割蒸餾損失 (Segmentation Distillation Loss)
                 # 讓學生的分割圖模仿教師的分割圖
@@ -313,7 +319,9 @@ def main(obj_names, args):
                 teacher_seg_log_softmax = F.log_softmax(teacher_seg_map, dim=1)
                 student_seg_log_softmax = F.log_softmax(student_seg_map, dim=1)
                 # KL 散度損失
-                seg_distill_loss = F.kl_div(student_seg_log_softmax, teacher_seg_log_softmax.exp(), reduction='batchmean')
+                seg_distill_loss = F.kl_div(student_seg_log_softmax,
+                                            teacher_seg_log_softmax.exp(),
+                                            reduction='batchmean')
                 # 或者，您也可以使用 MSE 損失:
                 # seg_distill_loss = F.mse_loss(student_seg_map, teacher_seg_map)
 
@@ -321,14 +329,14 @@ def main(obj_names, args):
                 # 使用真實的異常遮罩監督學生的分割結果
                 # 以焦點損失 (Focal Loss) 為例
                 student_seg_softmax = torch.softmax(student_seg_map, dim=1)
-                orig_seg_loss = loss_focal(student_seg_softmax, ground_truth_mask)
-
+                orig_seg_loss = loss_focal(student_seg_softmax,
+                                           ground_truth_mask)
 
                 # --- 判別網路總損失 ---
                 # --- 總損失與更新 ---
                 total_loss = (lambda_feat_distill * feat_distill_loss +
-                            lambda_seg_distill * seg_distill_loss +
-                            lambda_orig_seg * orig_seg_loss)
+                              lambda_seg_distill * seg_distill_loss +
+                              lambda_orig_seg * orig_seg_loss)
 
                 # --- 反向傳播與參數更新 ---
                 # 清除先前計算的梯度
@@ -339,20 +347,28 @@ def main(obj_names, args):
                 optimizer.step()
 
                 # 記錄訓練過程
-                writer.add_scalar("Train/Total_Loss", total_loss.item(), n_iter)
-                writer.add_scalar("Train/Feature_Distillation_Loss", feat_distill_loss.item(), n_iter)
-                writer.add_scalar("Train/Segmentation_Distillation_Loss", seg_distill_loss.item(), n_iter)
-                writer.add_scalar("Train/Original_Segmentation_Loss", orig_seg_loss.item(), n_iter)
-                predict_and_visualize_heatmap(student_model, sample_batched["image"], device,save_root)
+                writer.add_scalar("Train/Total_Loss", total_loss.item(),
+                                  n_iter)
+                writer.add_scalar("Train/Feature_Distillation_Loss",
+                                  feat_distill_loss.item(), n_iter)
+                writer.add_scalar("Train/Segmentation_Distillation_Loss",
+                                  seg_distill_loss.item(), n_iter)
+                writer.add_scalar("Train/Original_Segmentation_Loss",
+                                  orig_seg_loss.item(), n_iter)
+                predict_and_visualize_heatmap(student_model,
+                                              sample_batched["image"], device,
+                                              save_root)
                 n_iter += 1
 
             # 每個 epoch 結束後更新學習率並保存模型
             scheduler.step()
-            torch.save(student_model.state_dict(), os.path.join(checkpoint_dir, obj_name+".pckl"))
+            torch.save(student_model.state_dict(),
+                       os.path.join(checkpoint_dir, obj_name + ".pckl"))
 
         # 關閉 TensorBoard 紀錄器，釋放資源
         writer.close()
         torch.cuda.empty_cache()
+
 
 # =======================
 # Run pipeline
@@ -369,8 +385,12 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', default=25, type=int)
     parser.add_argument('--bs', action='store', type=int, required=True)
     parser.add_argument('--lr', action='store', type=float, required=True)
-    parser.add_argument('--gpu_id', action='store', type=int, default=-2, required=False,
-                    help='GPU ID (-2: auto-select, -1: CPU)')
+    parser.add_argument('--gpu_id',
+                        action='store',
+                        type=int,
+                        default=-2,
+                        required=False,
+                        help='GPU ID (-2: auto-select, -1: CPU)')
     args = parser.parse_args()
 
     # 自動選擇GPU
@@ -378,16 +398,17 @@ if __name__ == "__main__":
         args.gpu_id = get_available_gpu()
         print(f"自動選擇 GPU: {args.gpu_id}")
 
-    obj_batch = [
-        ['capsule'], ['bottle'], ['carpet'], ['leather'], ['pill'],
-        ['transistor'], ['tile'], ['cable'], ['zipper'], ['toothbrush'],
-        ['metal_nut'], ['hazelnut'], ['screw'], ['grid'], ['wood']
-    ]
+    obj_batch = [['capsule'], ['bottle'], ['carpet'], ['leather'], ['pill'],
+                 ['transistor'], ['tile'], ['cable'], ['zipper'],
+                 ['toothbrush'], ['metal_nut'], ['hazelnut'], ['screw'],
+                 ['grid'], ['wood']]
 
     if int(args.obj_id) == -1:
-        obj_list = ['capsule', 'bottle', 'carpet', 'leather', 'pill',
-                    'transistor', 'tile', 'cable', 'zipper', 'toothbrush',
-                    'metal_nut', 'hazelnut', 'screw', 'grid', 'wood']
+        obj_list = [
+            'capsule', 'bottle', 'carpet', 'leather', 'pill', 'transistor',
+            'tile', 'cable', 'zipper', 'toothbrush', 'metal_nut', 'hazelnut',
+            'screw', 'grid', 'wood'
+        ]
         picked_classes = obj_list
     else:
         picked_classes = obj_batch[int(args.obj_id)]
