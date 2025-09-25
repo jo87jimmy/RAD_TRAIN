@@ -352,15 +352,15 @@ def main(obj_names, args):
                 # 讓學生的分割圖模仿教師的分割圖
                 # 這裡以 KL 散度為例，教師的輸出需要先經過 softmax 轉換成機率分佈
                 # --- 新增：定義溫度 ---
-                temperature = 4.0  # 這是一個可以調整的超參數，通常在 2-10 之間
+                # temperature = 4.0  # 這是一個可以調整的超參數，通常在 2-10 之間
 
                 # 在 softmax 之前，將 logits 除以溫度
-                teacher_seg_log_softmax = F.log_softmax(teacher_seg_map /
-                                                        temperature,
-                                                        dim=1)
-                student_seg_log_softmax = F.log_softmax(student_seg_map /
-                                                        temperature,
-                                                        dim=1)
+                # teacher_seg_log_softmax = F.log_softmax(teacher_seg_map /
+                #                                         temperature,
+                #                                         dim=1)
+                # student_seg_log_softmax = F.log_softmax(student_seg_map /
+                #                                         temperature,
+                #                                         dim=1)
 
                 # KL 散度損失的計算需要乘以 T*T，以保持梯度的量級
                 # 這是 Hinton 的原始論文中提到的技巧
