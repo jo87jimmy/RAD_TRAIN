@@ -57,11 +57,24 @@ def get_available_gpu():
 
 
 def weights_init(m):
+    """ 卷積層權重 → 小亂數讓網路容易學習、梯度穩定
+        BatchNorm權重 → 初始縮放 1 保持數值穩定，偏置 0 不改變均值"""
+    # 取得模組的類別名稱，例如 'Conv2d', 'BatchNorm2d' 等
     classname = m.__class__.__name__
+
+    # 如果是卷積層 (Conv)
     if classname.find('Conv') != -1:
+        # 權重初始化為均值 0、標準差 0.02 的高斯分布
+        # 原因：這樣可以讓卷積層一開始輸出的特徵值分布均衡，避免梯度消失或梯度爆炸
         m.weight.data.normal_(0.0, 0.02)
+
+    # 如果是批次正規化層 (BatchNorm)
     elif classname.find('BatchNorm') != -1:
+        # 權重初始化為均值 1、標準差 0.02 的高斯分布
+        # 原因：BatchNorm 的權重 (gamma) 控制輸出縮放，初始化為 1 可以保持初始特徵分布不變
         m.weight.data.normal_(1.0, 0.02)
+        # 偏置初始化為 0
+        # 原因：偏置 (beta) 控制輸出偏移量，初始化為 0 可以保持輸出均值不偏移
         m.bias.data.fill_(0)
 
 
@@ -148,12 +161,6 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
     print(f"Saving out_image to: {save_path_cv}")
     plt.savefig(save_path_cv)
     plt.close(fig)  # 關閉圖形以避免記憶體洩漏
-
-    # 打印一些數值幫助判斷
-    print(f"Heatmap Min Value: {anomaly_heatmap.min()}")
-    print(f"Heatmap Max Value: {anomaly_heatmap.max()}")
-    print(f"Heatmap Mean Value: {anomaly_heatmap.mean()}")
-
     model.train()  # 恢復訓練模式
 
 
@@ -175,10 +182,27 @@ def main(obj_names, args):
         teacher_seg_ckpt = torch.load(checkpoint_seg_path,
                                       map_location=device,
                                       weights_only=True)
-        # 合併兩個 state_dict
-        full_ckpt = {}
-        full_ckpt.update(teacher_recon_ckpt)  # encoder/decoder 權重
-        full_ckpt.update(teacher_seg_ckpt)  # discriminator 權重
+        # # 合併兩個 state_dict
+        # full_ckpt = {}
+        # full_ckpt.update(teacher_recon_ckpt)  # encoder/decoder 權重
+        # full_ckpt.update(teacher_seg_ckpt)  # discriminator 權重
+
+        # 創建一個新的 state_dict 來存放修正後的鍵
+        new_teacher_state_dict = {}
+
+        # 為重建子網路的權重加上 "reconstruction_subnet." 前綴
+        for key, value in teacher_recon_ckpt.items():
+            new_key = "reconstruction_subnet." + key
+            new_teacher_state_dict[new_key] = value
+
+        # 為判別子網路的權重加上 "discriminator_subnet." 前綴
+        for key, value in teacher_seg_ckpt.items():
+            # 原始的DRAEM checkpoint可能包含 "module." 前綴（如果使用了DataParallel）
+            if key.startswith('module.'):
+                key = key[7:]
+            new_key = "discriminator_subnet." + key
+            new_teacher_state_dict[new_key] = value
+
         # 假設是處理3通道的RGB圖像
         IMG_CHANNELS = 3
         # 分割任務是二分類 (異常 vs. 正常)
@@ -192,11 +216,15 @@ def main(obj_names, args):
             disc_out=SEG_CLASSES,
             disc_base=128  # 教師判別網路較寬
         ).to(device)
-        # 檢查 checkpoint 結構
-        print("Checkpoint keys:", full_ckpt.keys())
+        # # 檢查 checkpoint 結構
+        # print("Checkpoint keys:", full_ckpt.keys())
 
-        # 將教師模型的參數載入至模型中，使用 checkpoint 中的 'reconstructive' 欄位
-        teacher_model.load_state_dict(full_ckpt, strict=False)
+        print("Checkpoint keys:", new_teacher_state_dict.keys())
+        # 現在使用修正後的 state_dict 載入，並使用 strict=True 來確保所有權重都正確載入
+        teacher_model.load_state_dict(new_teacher_state_dict, strict=True)
+
+        # # 將教師模型的參數載入至模型中，使用 checkpoint 中的 'reconstructive' 欄位
+        # teacher_model.load_state_dict(full_ckpt, strict=False)
         # 將教師模型設為評估模式，停用 Dropout、BatchNorm 等訓練專用機制
         teacher_model.eval()
 
@@ -214,34 +242,34 @@ def main(obj_names, args):
             disc_out=SEG_CLASSES,
             disc_base=64  # 學生判別網路較窄
         ).to(device)
+
+        #初始化 卷積層和 BatchNorm 層的初始權重分布合理，幫助模型更快收斂
+        student_model.apply(weights_init)
+
         # --- 特徵對齊層 ---
-        # 因為判別網路的特徵維度不同，需要對齊層來計算蒸餾損失
+        # 判別網路的特徵維度不同，需要對齊層來計算蒸餾損失
         # 學生判別網路的通道數
         s_channels = [64, 128, 256, 512, 512, 512]
         # 教師判別網路的通道數
         t_channels = [128, 256, 512, 1024, 1024, 1024]
-
+        # 使用 ModuleList 建立多個 1x1 Conv2d 層，用來將學生特徵對齊到教師特徵
         feature_aligns = nn.ModuleList([
             nn.Conv2d(s_c, t_c, kernel_size=1, bias=False)
             for s_c, t_c in zip(s_channels, t_channels)
         ]).to(device)
 
-        student_model.apply(weights_init)
-
-        # 假設 optimizer 只優化 student_model 和 feature_aligns 的參數
+        # 定義優化器，只優化學生模型和特徵對齊層的參數
         optimizer = torch.optim.Adam(list(student_model.parameters()) +
                                      list(feature_aligns.parameters()),
                                      lr=args.lr)
-
+        # 設定學習率調整策略，使用 MultiStepLR(一開始大步走，後面小步走)
         scheduler = optim.lr_scheduler.MultiStepLR(
-            optimizer, [args.epochs * 0.8, args.epochs * 0.9],
-            gamma=0.2,
-            last_epoch=-1)
+            optimizer,  # 需要調整的優化器
+            [args.epochs * 0.8, args.epochs * 0.9],  # 在訓練 80% 和 90% 時調整學習率
+            gamma=0.2,  # 每次調整時學習率乘上 0.2
+            last_epoch=-1)  # 從頭開始計算學習率
         # 定義損失函數
-        # 這裡使用 L2 損失（均方誤差）、SSIM 損失與 Focal Loss
-        # loss_l2 = torch.nn.modules.loss.MSELoss()
-        # loss_ssim = SSIM()
-        loss_focal = FocalLoss()
+        loss_focal = FocalLoss()  #解決類別不平衡、強化模型對難分類樣本的學習。
 
         path = f'./mvtec'  # 訓練資料路徑
         path_dtd = f'./dtd/images/'
@@ -281,21 +309,16 @@ def main(obj_names, args):
         # 設定不同損失的權重
 
         # 原始分割損失的權重 (監督學生學習真實標籤)
-        # 這通常是最主要的目標，可以設為 1.0 作為基準
-        lambda_orig_seg = 1.0
+        lambda_orig_seg = 1.0  # 這通常是最主要的目標，可以設為 1.0 作為基準
 
         # 分割蒸餾損失的權重 (監督學生模仿教師的分割結果)
-        # 這個也很重要，讓學生學習教師的 "軟標籤"，可以設為與原始損失相同或稍低的權重
-        lambda_seg_distill = 1.0
+        lambda_seg_distill = 1.0  # 讓學生學習教師的 "軟標籤soft target"，可以設為與原始損失相同或稍低的權重
 
         # 特徵蒸餾損失的權重 (監督學生模仿教師的中間特徵)
         # 這是一個輔助和正規化的目標，幫助學生學習更通用的特徵表示。
         # 由於多層特徵的損失加總後數值可能較大，通常會給予一個較小的權重。
         lambda_feat_distill = 0.5
-        # 假設 teacher_model 和 student_model 已經被定義和加載
-        # teacher_model 包含重建和判別子網路 (TRecon, TDisc)
-        # student_model 包含重建和判別子網路 (SRecon, SDisc)
-        # 假設 lambda_feat_distill, lambda_seg_distill, lambda_orig_seg 已經定義
+
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
             for i_batch, sample_batched in enumerate(train_loader):
@@ -303,16 +326,17 @@ def main(obj_names, args):
                 input_image = sample_batched["image"].to(device)
                 # 真實的異常遮罩，用於計算原始分割損失
                 ground_truth_mask = sample_batched["anomaly_mask"].to(device)
-                aug_gray_batch = sample_batched["augmented_image"].to(device)
+                aug_gray_batch = sample_batched["augmented_image"].to(
+                    device)  # 增強的灰階圖
 
                 # --- 教師網路前向傳播 (不計算梯度) ---
                 with torch.no_grad():
                     _, teacher_seg_map, teacher_features = teacher_model(
-                        aug_gray_batch, return_feats=True)
+                        input_image, return_feats=True)
 
                 # --- 學生網路前向傳播 ---
-                _, student_seg_map, student_features = student_model(
-                    aug_gray_batch, return_feats=True)
+                student_recon_image, student_seg_map, student_features = student_model(
+                    input_image, return_feats=True)
 
                 # --- 計算損失函數 ---
 
@@ -345,9 +369,26 @@ def main(obj_names, args):
                 orig_seg_loss = loss_focal(student_seg_softmax,
                                            ground_truth_mask)
 
-                # --- 判別網路總損失 ---
+                # 4. 新增：重建損失 (Reconstruction Loss)
+                # 這個損失只在輸入是 "正常" 圖像時計算才有意義，
+                # 但在 DRAEM 的設定中，我們用 aug_gray_batch，它是有異常的。
+                # 正確的做法是讓重建網路去重建原始的、無異常的圖像 input_image
+
+                # 讓學生模型也對原始正常圖像進行重建
+                student_recon_normal, _ = student_model(input_image,
+                                                        return_feats=False)
+
+                # 計算重建損失，通常使用 L1 或 L2 Loss
+                recon_loss = F.l1_loss(student_recon_normal, input_image)
+                # 或者 F.mse_loss
+
+                # --- 超參數定義 ---
+                lambda_recon = 1.0  # 重建損失的權重，需要調整
+
+                # --- 重建網路的學生判別網路總損失 ---
                 # --- 總損失與更新 ---
-                total_loss = (lambda_feat_distill * feat_distill_loss +
+                total_loss = (lambda_recon * recon_loss +
+                              lambda_feat_distill * feat_distill_loss +
                               lambda_seg_distill * seg_distill_loss +
                               lambda_orig_seg * orig_seg_loss)
 
@@ -356,6 +397,7 @@ def main(obj_names, args):
                 optimizer.zero_grad()
                 # 計算梯度
                 total_loss.backward()
+
                 # 更新學生判別網路 (以及重建網路) 的權重
                 optimizer.step()
 
@@ -368,9 +410,9 @@ def main(obj_names, args):
                                   seg_distill_loss.item(), n_iter)
                 writer.add_scalar("Train/Original_Segmentation_Loss",
                                   orig_seg_loss.item(), n_iter)
-                predict_and_visualize_heatmap(student_model,
-                                              sample_batched["image"], device,
-                                              save_root)
+                # predict_and_visualize_heatmap(student_model,
+                #                               sample_batched["image"], device,
+                #                               save_root)
                 n_iter += 1
 
             # 每個 epoch 結束後更新學習率並保存模型

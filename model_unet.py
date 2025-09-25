@@ -109,8 +109,7 @@ class EncoderDiscriminative(nn.Module):
             nn.Conv2d(base_width * 2, base_width * 2, kernel_size=3,
                       padding=1), nn.BatchNorm2d(base_width * 2),
             nn.ReLU(inplace=True))
-        self.mp2 = nn.Sequential(
-            nn.MaxPool2d(2))  # <<<--- BUG 修正：這裡原來是 self.mp3
+        self.mp2 = nn.Sequential(nn.MaxPool2d(2))
         self.block3 = nn.Sequential(
             nn.Conv2d(base_width * 2, base_width * 4, kernel_size=3,
                       padding=1), nn.BatchNorm2d(base_width * 4),
@@ -147,7 +146,7 @@ class EncoderDiscriminative(nn.Module):
         b1 = self.block1(x)
         mp1 = self.mp1(b1)
         b2 = self.block2(mp1)
-        mp2 = self.mp2(b2)  # <<<--- BUG 修正：這裡原來是 self.mp3
+        mp2 = self.mp2(b2)
         b3 = self.block3(mp2)
         mp3 = self.mp3(b3)
         b4 = self.block4(mp3)
@@ -309,7 +308,7 @@ class EncoderReconstructive(nn.Module):
         b1 = self.block1(x)
         mp1 = self.mp1(b1)
         b2 = self.block2(mp1)
-        mp2 = self.mp3(b2)
+        mp2 = self.mp2(b2)
         b3 = self.block3(mp2)
         mp3 = self.mp3(b3)
         b4 = self.block4(mp3)
