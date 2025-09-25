@@ -177,11 +177,14 @@ def main(obj_names, args):
         teacher_recon_ckpt = torch.load(checkpoint_path,
                                         map_location=device,
                                         weights_only=True)
+        print("teacher_recon_ckpt keys:", teacher_recon_ckpt.keys())
+
         seg_path = f'./DRAEM_checkpoints/DRAEM_seg_large_ae_large_0.0001_800_bs8_' + obj_name + '__seg'
         checkpoint_seg_path = seg_path + ".pckl"
         teacher_seg_ckpt = torch.load(checkpoint_seg_path,
                                       map_location=device,
                                       weights_only=True)
+        print("teacher_seg_ckpt keys:", teacher_seg_ckpt.keys())
         # # 合併兩個 state_dict
         # full_ckpt = {}
         # full_ckpt.update(teacher_recon_ckpt)  # encoder/decoder 權重
