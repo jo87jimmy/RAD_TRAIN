@@ -171,8 +171,8 @@ def main(obj_names, args):
                                         map_location=device,
                                         weights_only=True)
         seg_path = f'./DRAEM_checkpoints/DRAEM_seg_large_ae_large_0.0001_800_bs8_' + obj_name + '_seg'
-        checkpoint_path = seg_path + ".pckl"
-        teacher_seg_ckpt = torch.load(checkpoint_path,
+        checkpoint_seg_path = seg_path + ".pckl"
+        teacher_seg_ckpt = torch.load(checkpoint_seg_path,
                                       map_location=device,
                                       weights_only=True)
         # 合併兩個 state_dict
