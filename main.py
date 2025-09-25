@@ -254,7 +254,7 @@ def main(obj_names, args):
         # 學生判別網路的通道數
         s_channels = [64, 128, 256, 512, 512, 512]
         # 教師判別網路的通道數
-        t_channels = [128, 256, 512, 1024, 1024, 1024]
+        t_channels = [64, 128, 256, 512, 512, 512]
         # 使用 ModuleList 建立多個 1x1 Conv2d 層，用來將學生特徵對齊到教師特徵
         feature_aligns = nn.ModuleList([
             nn.Conv2d(s_c, t_c, kernel_size=1, bias=False)
