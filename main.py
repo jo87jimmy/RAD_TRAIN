@@ -310,10 +310,10 @@ def main(obj_names, args):
 
         # --- 超參數定義 ---
         # 設定不同損失的權重
-        lambda_orig_seg = 10.0  #原始分割損失的權重 (監督學生學習真實標籤)
-        lambda_seg_distill = 5.0  #分割蒸餾損失的權重 (監督學生模仿教師的分割結果)
-        lambda_feat_distill = 0.1  #特徵蒸餾損失的權重 (監督學生模仿教師的中間特徵)
-        lambda_recon = 0.5  #重建損失的權重 (監督學生重建正常圖像)
+        lambda_recon = 1.0  # 重建損失作為一個基準
+        lambda_orig_seg = 1.0  # 讓原始分割損失和重建損失同等重要
+        lambda_seg_distill = 1.0  # 蒸餾損失也設為同等重要
+        lambda_feat_distill = 0.5  # 特徵蒸餾作為輔助，權重可以稍低
 
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
@@ -364,10 +364,11 @@ def main(obj_names, args):
 
                 # KL 散度損失的計算需要乘以 T*T，以保持梯度的量級
                 # 這是 Hinton 的原始論文中提到的技巧
-                seg_distill_loss = F.kl_div(
-                    student_seg_log_softmax,
-                    teacher_seg_log_softmax.exp(),
-                    reduction='batchmean') * (temperature * temperature)
+                # seg_distill_loss = F.kl_div(
+                #     student_seg_log_softmax,
+                #     teacher_seg_log_softmax.exp(),
+                #     reduction='batchmean') * (temperature * temperature)
+                seg_distill_loss = F.mse_loss(student_seg_map, teacher_seg_map)
 
                 # 3. 原始分割損失 (Original Segmentation Loss)
                 # 使用真實的異常遮罩監督學生的分割結果
