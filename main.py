@@ -309,11 +309,17 @@ def main(obj_names, args):
         n_iter = 0
 
         # --- 超參數定義 ---
-        # 設定不同損失的權重
-        lambda_recon = 1.0  # 重建損失作為一個基準
-        lambda_orig_seg = 1.0  # 讓原始分割損失和重建損失同等重要
-        lambda_seg_distill = 1.0  # 蒸餾損失也設為同等重要
-        lambda_feat_distill = 0.5  # 特徵蒸餾作為輔助，權重可以稍低
+        # 將原始分割損失的權重提升為主要信號源
+        lambda_orig_seg = 10.0
+
+        # 保持重建損失作為一個重要的基線
+        lambda_recon = 1.0
+
+        # 適當降低分割蒸餾的權重，讓它與原始分割處於同等或稍低的地位
+        lambda_seg_distill = 5.0  # 或者您也可以從 1.0 開始
+
+        # 特徵蒸餾作為輔助項，保持較低權重
+        lambda_feat_distill = 0.5
 
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
