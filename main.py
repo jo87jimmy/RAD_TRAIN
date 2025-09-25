@@ -310,36 +310,31 @@ def main(obj_names, args):
 
         # --- 超參數定義 ---
         # 設定不同損失的權重
-
-        # 原始分割損失的權重 (監督學生學習真實標籤)
-        lambda_orig_seg = 1.0  # 這通常是最主要的目標，可以設為 1.0 作為基準
-
-        # 分割蒸餾損失的權重 (監督學生模仿教師的分割結果)
-        lambda_seg_distill = 1.0  # 讓學生學習教師的 "軟標籤soft target"，可以設為與原始損失相同或稍低的權重
-
-        # 特徵蒸餾損失的權重 (監督學生模仿教師的中間特徵)
-        # 這是一個輔助和正規化的目標，幫助學生學習更通用的特徵表示。
-        # 由於多層特徵的損失加總後數值可能較大，通常會給予一個較小的權重。
-        lambda_feat_distill = 0.5
+        lambda_orig_seg = 10.0  #原始分割損失的權重 (監督學生學習真實標籤)
+        lambda_seg_distill = 5.0  #分割蒸餾損失的權重 (監督學生模仿教師的分割結果)
+        lambda_feat_distill = 0.1  #特徵蒸餾損失的權重 (監督學生模仿教師的中間特徵)
+        lambda_recon = 0.5  #重建損失的權重 (監督學生重建正常圖像)
 
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
             for i_batch, sample_batched in enumerate(train_loader):
                 # 遍歷訓練資料集的每個批次
-                input_image = sample_batched["image"].to(device)
-                # 真實的異常遮罩，用於計算原始分割損失
-                ground_truth_mask = sample_batched["anomaly_mask"].to(device)
+                input_image = sample_batched["image"].to(device)  # 正常圖像
+                ground_truth_mask = sample_batched["anomaly_mask"].to(
+                    device)  # 對應 aug_gray_batch 的遮罩
                 aug_gray_batch = sample_batched["augmented_image"].to(
-                    device)  # 增強的灰階圖
+                    device)  # 帶異常的圖像
 
-                # --- 教師網路前向傳播 (不計算梯度) ---
+                # --- 教師網路前向傳播 (輸入帶異常的圖像) ---
                 with torch.no_grad():
+                    # 教師模型對 aug_gray_batch 進行判斷，以提供蒸餾目標
                     _, teacher_seg_map, teacher_features = teacher_model(
-                        input_image, return_feats=True)
+                        aug_gray_batch, return_feats=True)
 
-                # --- 學生網路前向傳播 ---
-                student_recon_image, student_seg_map, student_features = student_model(
-                    input_image, return_feats=True)
+                # --- 學生網路前向傳播 (輸入帶異常的圖像，用於分割) ---
+                # 學生模型對 aug_gray_batch 進行判斷
+                _, student_seg_map, student_features = student_model(
+                    aug_gray_batch, return_feats=True)
 
                 # --- 計算損失函數 ---
 
@@ -380,13 +375,7 @@ def main(obj_names, args):
                 # 讓學生模型也對原始正常圖像進行重建
                 student_recon_normal, _ = student_model(input_image,
                                                         return_feats=False)
-
-                # 計算重建損失，通常使用 L1 或 L2 Loss
                 recon_loss = F.l1_loss(student_recon_normal, input_image)
-                # 或者 F.mse_loss
-
-                # --- 超參數定義 ---
-                lambda_recon = 1.0  # 重建損失的權重，需要調整
 
                 # --- 重建網路的學生判別網路總損失 ---
                 # --- 總損失與更新 ---
@@ -394,7 +383,22 @@ def main(obj_names, args):
                               lambda_feat_distill * feat_distill_loss +
                               lambda_seg_distill * seg_distill_loss +
                               lambda_orig_seg * orig_seg_loss)
-
+                # ==================== 診斷程式碼 ====================
+                if i_batch % 50 == 0:  # 每 50 個 batch 印一次
+                    print(f"\n[Epoch {epoch}, Batch {i_batch}] Loss values:")
+                    print(
+                        f"  - Recon Loss        : {recon_loss.item():.4f} (Weighted: {lambda_recon * recon_loss.item():.4f})"
+                    )
+                    print(
+                        f"  - Feat Distill Loss : {feat_distill_loss.item():.4f} (Weighted: {lambda_feat_distill * feat_distill_loss.item():.4f})"
+                    )
+                    print(
+                        f"  - Seg Distill Loss  : {seg_distill_loss.item():.4f} (Weighted: {lambda_seg_distill * seg_distill_loss.item():.4f})"
+                    )
+                    print(
+                        f"  - Orig Seg Loss     : {orig_seg_loss.item():.4f} (Weighted: {lambda_orig_seg * orig_seg_loss.item():.4f})"
+                    )
+                    print(f"  - Total Loss        : {total_loss.item():.4f}")
                 # --- 反向傳播與參數更新 ---
                 # 清除先前計算的梯度
                 optimizer.zero_grad()
