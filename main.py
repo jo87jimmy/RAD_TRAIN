@@ -68,7 +68,7 @@ def weights_init(m):
 def predict_and_visualize_heatmap(model, image_input, device, save_path):
     """
     修改後的函數，能夠同時處理文件路徑和圖像 Tensor
-    
+
     Args:
         model: 訓練好的模型
         image_input: 可以是文件路徑字符串或圖像張量 [batch_size, channels, height, width]
