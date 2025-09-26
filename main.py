@@ -440,8 +440,18 @@ def main(obj_names, args):
 
             # 每個 epoch 結束後更新學習率並保存模型
             scheduler.step()
-            torch.save(student_model.state_dict(),
-                       os.path.join(checkpoint_dir, obj_name + ".pckl"))
+            # torch.save(student_model.state_dict(),
+            #            os.path.join(checkpoint_dir, obj_name + ".pckl"))
+
+            # 如果比歷史最佳還低，就保存為 best
+            avg_loss = total_loss.item()  # 或者你可以改成整個 epoch 的平均 loss
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                torch.save(student_model.state_dict(),
+                           os.path.join(checkpoint_dir, obj_name + ".pckl"))
+                print(
+                    f"✅ New best model saved at epoch {epoch}, loss={avg_loss:.4f}"
+                )
 
         # 關閉 TensorBoard 紀錄器，釋放資源
         writer.close()
