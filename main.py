@@ -321,7 +321,7 @@ def main(obj_names, args):
         # 特徵蒸餾作為輔助項，保持較低權重
         lambda_feat_distill = 0.5
 
-        best_loss = 0.0
+        best_loss = float("inf")
 
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
