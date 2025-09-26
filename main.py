@@ -325,6 +325,10 @@ def main(obj_names, args):
 
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
+
+            epoch_loss = 0.0  # 用來累加一整個 epoch 的 loss
+            num_batches = 0  # 批次數量計數器
+
             for i_batch, sample_batched in enumerate(train_loader):
                 # 遍歷訓練資料集的每個批次
                 input_image = sample_batched["image"].to(device)  # 正常圖像
@@ -422,9 +426,12 @@ def main(obj_names, args):
                 optimizer.zero_grad()
                 # 計算梯度
                 total_loss.backward()
-
                 # 更新學生判別網路 (以及重建網路) 的權重
                 optimizer.step()
+
+                # 累加 epoch loss
+                epoch_loss += total_loss.item()
+                num_batches += 1
 
                 # 記錄訓練過程
                 writer.add_scalar("Train/Total_Loss", total_loss.item(),
@@ -438,6 +445,7 @@ def main(obj_names, args):
                 # predict_and_visualize_heatmap(student_model,
                 #                               sample_batched["image"], device,
                 #                               save_root)
+
                 n_iter += 1
 
             # 每個 epoch 結束後更新學習率並保存模型
@@ -446,13 +454,17 @@ def main(obj_names, args):
             #            os.path.join(checkpoint_dir, obj_name + ".pckl"))
 
             # 如果比歷史最佳還低，就保存為 best
-            avg_loss = total_loss.item()  # 或者你可以改成整個 epoch 的平均 loss
+            # avg_loss = total_loss.item()  # 或者你可以改成整個 epoch 的平均 loss
+            # 計算平均 loss
+            avg_loss = epoch_loss / num_batches
+            print(f"📊 Epoch {epoch} Average Loss: {avg_loss:.4f}")
+            # 判斷是否保存最佳模型
             if avg_loss < best_loss:
                 best_loss = avg_loss
                 torch.save(student_model.state_dict(),
                            os.path.join(checkpoint_dir, obj_name + ".pckl"))
                 print(
-                    f"✅ New best model saved at epoch {epoch}, loss={avg_loss:.4f}"
+                    f"✅ New best model saved at epoch {epoch}, avg_loss={avg_loss:.4f}"
                 )
 
         # 關閉 TensorBoard 紀錄器，釋放資源
