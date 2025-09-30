@@ -164,6 +164,184 @@ def predict_and_visualize_heatmap(model, image_input, device, save_path):
     model.train()  # 恢復訓練模式
 
 
+def visualize_predictions(teacher_model, student_model, batch, device,
+                          save_path):
+    """
+    視覺化教師模型和學生模型的預測結果對比
+    """
+    teacher_model.eval()
+    student_model.eval()
+    with torch.no_grad():
+        input_image = batch["image"].to(device)
+        aug_image = batch["augmented_image"].to(device)
+        gt_mask = batch["anomaly_mask"].to(device)
+
+        # 教師預測
+        teacher_recon, teacher_seg, _ = teacher_model(aug_image)
+        # 學生預測
+        student_recon, student_seg, _ = student_model(aug_image)
+
+        # 轉換為 numpy 用於繪圖
+        input_np = input_image.cpu().numpy()[0].transpose(1, 2, 0)
+        aug_np = aug_image.cpu().numpy()[0].transpose(1, 2, 0)
+        gt_mask_np = gt_mask.cpu().numpy()[0, 0]  # 取第一個通道
+
+        # 處理分割結果
+        teacher_seg_np = torch.softmax(teacher_seg,
+                                       dim=1)[0, 1].cpu().numpy()  # 異常類別概率
+        student_seg_np = torch.softmax(student_seg, dim=1)[0, 1].cpu().numpy()
+
+        # 創建圖像
+        fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+
+        # 第一行：輸入圖像
+        axes[0, 0].imshow(input_np)
+        axes[0, 0].set_title('Original Image')
+        axes[0, 0].axis('off')
+
+        axes[0, 1].imshow(aug_np)
+        axes[0, 1].set_title('Augmented Image')
+        axes[0, 1].axis('off')
+
+        axes[0, 2].imshow(gt_mask_np, cmap='jet')
+        axes[0, 2].set_title('Ground Truth Mask')
+        axes[0, 2].axis('off')
+
+        axes[0, 3].axis('off')  # 空白
+
+        # 第二行：預測結果
+        im1 = axes[1, 0].imshow(teacher_seg_np, cmap='jet', vmin=0, vmax=1)
+        axes[1, 0].set_title('Teacher Segmentation')
+        axes[1, 0].axis('off')
+        plt.colorbar(im1, ax=axes[1, 0])
+
+        im2 = axes[1, 1].imshow(student_seg_np, cmap='jet', vmin=0, vmax=1)
+        axes[1, 1].set_title('Student Segmentation')
+        axes[1, 1].axis('off')
+        plt.colorbar(im2, ax=axes[1, 1])
+
+        # 差異圖
+        diff = np.abs(teacher_seg_np - student_seg_np)
+        im3 = axes[1, 2].imshow(diff, cmap='hot', vmin=0, vmax=1)
+        axes[1, 2].set_title('Teacher-Student Difference')
+        axes[1, 2].axis('off')
+        plt.colorbar(im3, ax=axes[1, 2])
+
+        # 二值化對比
+        student_binary = (student_seg_np > 0.5).astype(np.float32)
+        im4 = axes[1, 3].imshow(student_binary, cmap='gray')
+        axes[1, 3].set_title('Student Binary (>0.5)')
+        axes[1, 3].axis('off')
+
+        plt.tight_layout()
+        plt.savefig(save_path + '.png', dpi=150, bbox_inches='tight')
+        plt.close()
+
+        print(f"✅ Visualization saved: {save_path}.png")
+
+
+def detailed_diagnostic_visualization(teacher_model, student_model, loss_focal,
+                                      batch, device, save_path, epoch,
+                                      i_batch):
+    """
+    更詳細的診斷視覺化，包含損失值和指標
+    """
+    teacher_model.eval()
+    student_model.eval()
+    with torch.no_grad():
+        input_image = batch["image"].to(device)
+        aug_image = batch["augmented_image"].to(device)
+        gt_mask = batch["anomaly_mask"].to(device)
+
+        # 獲取預測
+        teacher_recon, teacher_seg, teacher_feats = teacher_model(
+            aug_image, return_feats=True)
+        student_recon, student_seg, student_feats = student_model(
+            aug_image, return_feats=True)
+
+        # 計算當前損失（僅用於顯示）
+        seg_distill_loss = F.mse_loss(student_seg, teacher_seg).item()
+        student_seg_softmax = torch.softmax(student_seg, dim=1)
+        orig_seg_loss = loss_focal(student_seg_softmax, gt_mask).item()
+
+        # 轉換為 numpy
+        input_np = input_image.cpu().numpy()[0].transpose(1, 2, 0)
+        aug_np = aug_image.cpu().numpy()[0].transpose(1, 2, 0)
+        gt_mask_np = gt_mask.cpu().numpy()[0, 0]
+        teacher_seg_np = torch.softmax(teacher_seg, dim=1)[0, 1].cpu().numpy()
+        student_seg_np = torch.softmax(student_seg, dim=1)[0, 1].cpu().numpy()
+
+        # 創建診斷圖
+        fig, axes = plt.subplots(2, 5, figsize=(25, 10))
+
+        # 第一行
+        axes[0, 0].imshow(input_np)
+        axes[0, 0].set_title('Original Image')
+        axes[0, 0].axis('off')
+
+        axes[0, 1].imshow(aug_np)
+        axes[0, 1].set_title('Augmented Image')
+        axes[0, 1].axis('off')
+
+        axes[0, 2].imshow(gt_mask_np, cmap='jet')
+        axes[0, 2].set_title('GT Mask')
+        axes[0, 2].axis('off')
+
+        axes[0, 3].imshow(teacher_seg_np, cmap='jet', vmin=0, vmax=1)
+        axes[0, 3].set_title(f'Teacher Seg\nMax: {teacher_seg_np.max():.3f}')
+        axes[0, 3].axis('off')
+
+        axes[0, 4].imshow(student_seg_np, cmap='jet', vmin=0, vmax=1)
+        axes[0, 4].set_title(f'Student Seg\nMax: {student_seg_np.max():.3f}')
+        axes[0, 4].axis('off')
+
+        # 第二行：分析和差異
+        # 差異圖
+        diff = np.abs(teacher_seg_np - student_seg_np)
+        axes[1, 0].imshow(diff, cmap='hot')
+        axes[1, 0].set_title(f'Difference\nAvg: {diff.mean():.3f}')
+        axes[1, 0].axis('off')
+
+        # 學生二值化
+        student_binary = (student_seg_np > 0.5).astype(np.float32)
+        axes[1, 1].imshow(student_binary, cmap='gray')
+        axes[1, 1].set_title('Student Binary\n(>0.5)')
+        axes[1, 1].axis('off')
+
+        # 教師二值化
+        teacher_binary = (teacher_seg_np > 0.5).astype(np.float32)
+        axes[1, 2].imshow(teacher_binary, cmap='gray')
+        axes[1, 2].set_title('Teacher Binary\n(>0.5)')
+        axes[1, 2].axis('off')
+
+        # 損失信息
+        axes[1, 3].text(0.1,
+                        0.7, f'Epoch: {epoch}\nBatch: {i_batch}\n\n'
+                        f'Seg Distill Loss: {seg_distill_loss:.4f}\n'
+                        f'Orig Seg Loss: {orig_seg_loss:.4f}',
+                        fontsize=12)
+        axes[1, 3].axis('off')
+
+        # 統計信息
+        axes[1, 4].text(0.1,
+                        0.7, f'Teacher Stats:\n'
+                        f'Mean: {teacher_seg_np.mean():.3f}\n'
+                        f'Std: {teacher_seg_np.std():.3f}\n\n'
+                        f'Student Stats:\n'
+                        f'Mean: {student_seg_np.mean():.3f}\n'
+                        f'Std: {student_seg_np.std():.3f}',
+                        fontsize=12)
+        axes[1, 4].axis('off')
+
+        plt.tight_layout()
+        plt.savefig(save_path + '_diagnostic.png',
+                    dpi=150,
+                    bbox_inches='tight')
+        plt.close()
+
+        print(f"✅ Diagnostic visualization saved: {save_path}_diagnostic.png")
+
+
 # =======================
 # Main Pipeline
 # =======================
@@ -417,6 +595,22 @@ def main(obj_names, args):
                 total_loss.backward()
                 # 更新學生判別網路 (以及重建網路) 的權重
                 optimizer.step()
+
+                # 每 N 個批次進行一次視覺化
+                if i_batch % 100 == 0:  # 每100個batch視覺化一次
+                    visualize_predictions(
+                        teacher_model, student_model, sample_batched, device,
+                        os.path.join(save_root,
+                                     f"vis_epoch_{epoch}_batch_{i_batch}"))
+
+                # 每500個batch進行詳細診斷
+                if i_batch % 500 == 0:
+                    detailed_diagnostic_visualization(
+                        teacher_model, student_model, loss_focal,
+                        sample_batched, device,
+                        os.path.join(save_root,
+                                     f"diag_epoch_{epoch}_batch_{i_batch}"),
+                        epoch, i_batch)
 
                 # 累加 epoch loss
                 epoch_loss += total_loss.item()
