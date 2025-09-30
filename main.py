@@ -403,16 +403,16 @@ def main(obj_names, args):
 
         # --- 超參數定義 ---
         # 將原始分割損失的權重提升為主要信號源
-        lambda_orig_seg = 10.0
+        lambda_orig_seg = 1.0
 
         # 保持重建損失作為一個重要的基線
-        lambda_recon = 1.5
+        lambda_recon = 1.0
 
         # 適當降低分割蒸餾的權重，讓它與原始分割處於同等或稍低的地位
-        lambda_seg_distill = 2.0  # 或者您也可以從 1.0 開始
+        lambda_seg_distill = 0.5  # 或者您也可以從 1.0 開始
 
         # 特徵蒸餾作為輔助項，保持較低權重
-        lambda_feat_distill = 1.0
+        lambda_feat_distill = 0.1
 
         best_loss = float("inf")
         # 在訓練開始前初始化 best_seg_distill_loss
@@ -583,19 +583,29 @@ def main(obj_names, args):
             #         f"✅ New best model saved at epoch {epoch}, seg_distill_loss={avg_seg_distill_loss:.4f}"
             #     )
 
-            # 計算平均 Orig Seg Loss
+            # --- 計算整個 Epoch 的平均損失 ---
+            # 雖然不用 avg_total_loss 來存模型，但打印出來有助於觀察整體收斂情況
+            avg_total_loss = epoch_loss / num_batches
             avg_orig_seg_loss = epoch_orig_seg_loss / num_batches
-            print(
-                f"📊 Epoch {epoch} Average Orig Seg Loss: {avg_orig_seg_loss:.4f}"
-            )
 
-            # 判斷是否保存最佳模型（改用 Orig Seg Loss）
+            print("-" * 50)
+            print(f"Epoch {epoch} Summary:")
+            print(f"  - Average Total Loss        : {avg_total_loss:.6f}")
+            print(
+                f"  - Average Orig Seg Loss     : {avg_orig_seg_loss:.6f}  <-- 我們用這個指標來判斷最佳模型"
+            )
+            print("-" * 50)
+
+            # --- 判斷並儲存最佳模型 ---
+            # 核心邏輯：如果這個 Epoch 的平均原始分割損失比歷史最佳還要低，就更新並儲存模型
             if avg_orig_seg_loss < best_orig_seg_loss:
                 best_orig_seg_loss = avg_orig_seg_loss
-                torch.save(student_model.state_dict(),
-                           os.path.join(checkpoint_dir, obj_name + ".pckl"))
+                save_path = os.path.join(checkpoint_dir,
+                                         f"{obj_name}_best.pckl")
+                torch.save(student_model.state_dict(), save_path)
+                print(f"✅ New best model saved at epoch {epoch}!")
                 print(
-                    f"✅ New best model saved at epoch {epoch}, orig_seg_loss={avg_orig_seg_loss:.4f}"
+                    f"   Best Original Segmentation Loss updated to: {best_orig_seg_loss:.6f}"
                 )
         # 關閉 TensorBoard 紀錄器，釋放資源
         writer.close()
