@@ -78,92 +78,6 @@ def weights_init(m):
         m.bias.data.fill_(0)
 
 
-def predict_and_visualize_heatmap(model, image_input, device, save_path):
-    """
-    修改後的函數，能夠同時處理文件路徑和圖像 Tensor
-
-    Args:
-        model: 訓練好的模型
-        image_input: 可以是文件路徑字符串或圖像張量 [batch_size, channels, height, width]
-        device: 設備
-        save_path: 保存路徑
-    """
-    # 定義預處理轉換
-    preprocess = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])
-    ])
-
-    # 判斷輸入類型並進行相應處理
-    if isinstance(image_input, str):
-        # 輸入是文件路徑
-        image = Image.open(image_input).convert("RGB")
-        original_image_np = np.array(image.resize((224, 224)))
-        image_tensor = preprocess(image).unsqueeze(0).to(device)
-        batch_size = 1
-    else:
-        # 輸入是 Tensor
-        image_tensor = image_input.to(device)
-        batch_size = image_tensor.size(0)
-
-        # 將 Tensor 轉換回 PIL 圖像用於可視化
-        # 注意：這裡假設 Tensor 是 [C, H, W] 或 [B, C, H, W] 格式，且值在 [0,1] 或已歸一化
-        if batch_size == 1:
-            img_np = image_tensor[0].cpu().permute(1, 2, 0).numpy()
-        else:
-            img_np = image_tensor[0].cpu().permute(1, 2, 0).numpy()
-
-        # 反正規化並轉換到 [0,255] 範圍
-        img_np = (img_np - img_np.min()) / (img_np.max() - img_np.min()) * 255
-        original_image_np = img_np.astype('uint8')
-
-    model.eval()
-    with torch.no_grad():
-        recon_image_tensor, seg_map_logits = model(image_tensor,
-                                                   return_feats=False)
-
-    # --- 關鍵偵錯步驟 ---
-    # 1. 將 logits 轉換為機率
-    seg_map_probs = torch.softmax(seg_map_logits, dim=1)
-
-    # 2. 提取 "異常類別" 的機率圖
-    # 假設索引 1 代表 "異常" (索引 0 代表 "正常")
-    anomaly_heatmap = seg_map_probs[0, 1, :, :].cpu().numpy()
-
-    # 3. 產生最終的二值化遮罩 (用於比較)
-    masks = np.argmax(seg_map_probs.cpu().numpy(), axis=1)  # (B, H, W)
-    anomaly_mask = masks[0]  # 取第一張 (H, W)
-    # anomaly_mask = np.argmax(seg_map_probs.cpu().numpy(), axis=1).squeeze()
-
-    # --- 可視化 ---
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-
-    # 顯示原始圖像
-    axes[0].imshow(original_image_np)
-    axes[0].set_title('Original Image')
-    axes[0].axis('off')
-
-    # 顯示異常熱圖
-    im = axes[1].imshow(anomaly_heatmap, cmap='viridis')
-    axes[1].set_title('Anomaly Probability Heatmap')
-    axes[1].axis('off')
-    fig.colorbar(im, ax=axes[1])
-
-    # 顯示最終的二值化遮罩
-    axes[2].imshow(original_image_np)
-    axes[2].imshow(anomaly_mask, cmap='jet', alpha=0.5)
-    axes[2].set_title('Final ArgMax Mask')
-    axes[2].axis('off')
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path_cv = f"{save_path}/out_mask_cv_{timestamp}.png"
-    print(f"Saving out_image to: {save_path_cv}")
-    plt.savefig(save_path_cv)
-    plt.close(fig)  # 關閉圖形以避免記憶體洩漏
-    model.train()  # 恢復訓練模式
-
-
 def visualize_predictions(teacher_model, student_model, batch, device,
                           save_path):
     """
@@ -194,42 +108,41 @@ def visualize_predictions(teacher_model, student_model, batch, device,
         # 創建圖像
         fig, axes = plt.subplots(2, 4, figsize=(20, 10))
 
-        # 第一行：輸入圖像
-        axes[0, 0].imshow(input_np)
+        # 第一行：原始輸入與標註
+        axes[0, 0].imshow(input_np)  # 原始輸入影像，用於參考真實場景
         axes[0, 0].set_title('Original Image')
         axes[0, 0].axis('off')
-
-        axes[0, 1].imshow(aug_np)
+        axes[0, 1].imshow(aug_np)  # 增強後影像，實際輸入模型的資料
         axes[0, 1].set_title('Augmented Image')
         axes[0, 1].axis('off')
-
-        axes[0, 2].imshow(gt_mask_np, cmap='jet')
+        axes[0, 2].imshow(gt_mask_np, cmap='jet')  # Ground Truth 異常遮罩，作為標準答案
         axes[0, 2].set_title('Ground Truth Mask')
         axes[0, 2].axis('off')
-
         axes[0, 3].axis('off')  # 空白
 
-        # 第二行：預測結果
-        im1 = axes[1, 0].imshow(teacher_seg_np, cmap='jet', vmin=0, vmax=1)
+        # 第二行：模型預測與比較
+        im1 = axes[1, 0].imshow(teacher_seg_np, cmap='jet', vmin=0,
+                                vmax=1)  # 教師模型的異常機率分佈，作為學生模型的學習目標
         axes[1, 0].set_title('Teacher Segmentation')
         axes[1, 0].axis('off')
         plt.colorbar(im1, ax=axes[1, 0])
 
-        im2 = axes[1, 1].imshow(student_seg_np, cmap='jet', vmin=0, vmax=1)
+        im2 = axes[1, 1].imshow(student_seg_np, cmap='jet', vmin=0,
+                                vmax=1)  # 學生模型的異常機率分佈，用於與教師模型做對比
         axes[1, 1].set_title('Student Segmentation')
         axes[1, 1].axis('off')
         plt.colorbar(im2, ax=axes[1, 1])
-
         # 差異圖
         diff = np.abs(teacher_seg_np - student_seg_np)
-        im3 = axes[1, 2].imshow(diff, cmap='hot', vmin=0, vmax=1)
+        im3 = axes[1, 2].imshow(diff, cmap='hot', vmin=0,
+                                vmax=1)  # 教師與學生模型預測差異圖，顯示兩者在空間上的預測偏差
         axes[1, 2].set_title('Teacher-Student Difference')
         axes[1, 2].axis('off')
         plt.colorbar(im3, ax=axes[1, 2])
-
         # 二值化對比
         student_binary = (student_seg_np > 0.5).astype(np.float32)
-        im4 = axes[1, 3].imshow(student_binary, cmap='gray')
+        im4 = axes[1, 3].imshow(student_binary,
+                                cmap='gray')  # 學生模型的二值化結果（閾值0.5），用於觀察最終異常判斷區域
         axes[1, 3].set_title('Student Binary (>0.5)')
         axes[1, 3].axis('off')
 
@@ -272,47 +185,47 @@ def detailed_diagnostic_visualization(teacher_model, student_model, loss_focal,
         # 創建診斷圖
         fig, axes = plt.subplots(2, 5, figsize=(25, 10))
 
-        # 第一行
-        axes[0, 0].imshow(input_np)
+        # 第一行：輸入與預測
+        axes[0, 0].imshow(input_np)  # 原始影像
         axes[0, 0].set_title('Original Image')
         axes[0, 0].axis('off')
-
-        axes[0, 1].imshow(aug_np)
+        axes[0, 1].imshow(aug_np)  # 增強影像
         axes[0, 1].set_title('Augmented Image')
         axes[0, 1].axis('off')
-
-        axes[0, 2].imshow(gt_mask_np, cmap='jet')
+        axes[0, 2].imshow(gt_mask_np, cmap='jet')  # Ground Truth 異常遮罩
         axes[0, 2].set_title('GT Mask')
         axes[0, 2].axis('off')
 
-        axes[0, 3].imshow(teacher_seg_np, cmap='jet', vmin=0, vmax=1)
+        axes[0, 3].imshow(teacher_seg_np, cmap='jet', vmin=0,
+                          vmax=1)  # 教師模型預測，並顯示最大異常機率值，評估其敏感度
         axes[0, 3].set_title(f'Teacher Seg\nMax: {teacher_seg_np.max():.3f}')
         axes[0, 3].axis('off')
-
         axes[0, 4].imshow(student_seg_np, cmap='jet', vmin=0, vmax=1)
         axes[0, 4].set_title(f'Student Seg\nMax: {student_seg_np.max():.3f}')
-        axes[0, 4].axis('off')
+        axes[0, 4].axis('off')  # 學生模型預測，並顯示最大異常機率值，評估其偵測能力
 
         # 第二行：分析和差異
-        # 差異圖
         diff = np.abs(teacher_seg_np - student_seg_np)
-        axes[1, 0].imshow(diff, cmap='hot')
+        axes[1, 0].imshow(diff, cmap='hot')  # 教師與學生的差異圖，並顯示平均差異值，用於衡量知識蒸餾效果
         axes[1, 0].set_title(f'Difference\nAvg: {diff.mean():.3f}')
         axes[1, 0].axis('off')
-
         # 學生二值化
         student_binary = (student_seg_np > 0.5).astype(np.float32)
-        axes[1, 1].imshow(student_binary, cmap='gray')
+        axes[1, 1].imshow(student_binary,
+                          cmap='gray')  # 學生模型的二值化結果，觀察其最終異常判斷區域
         axes[1, 1].set_title('Student Binary\n(>0.5)')
         axes[1, 1].axis('off')
-
         # 教師二值化
         teacher_binary = (teacher_seg_np > 0.5).astype(np.float32)
-        axes[1, 2].imshow(teacher_binary, cmap='gray')
+        axes[1, 2].imshow(teacher_binary,
+                          cmap='gray')  # 教師模型的二值化結果，作為學生模型的參考標準
         axes[1, 2].set_title('Teacher Binary\n(>0.5)')
         axes[1, 2].axis('off')
 
         # 損失信息
+        # 顯示目前訓練週期與批次編號，以及兩種損失值：
+        # - seg_distill_loss：學生模仿教師的損失
+        # - orig_seg_loss：學生對 Ground Truth 的預測損失
         axes[1, 3].text(0.1,
                         0.7, f'Epoch: {epoch}\nBatch: {i_batch}\n\n'
                         f'Seg Distill Loss: {seg_distill_loss:.4f}\n'
@@ -321,6 +234,10 @@ def detailed_diagnostic_visualization(teacher_model, student_model, loss_focal,
         axes[1, 3].axis('off')
 
         # 統計信息
+        # 顯示教師與學生模型的統計資訊（平均值與標準差），
+        # 用於分析模型預測的穩定性與分佈特性：
+        # - Mean：代表整體異常機率的平均強度
+        # - Std：代表預測分佈的離散程度，越高表示模型預測越不穩定
         axes[1, 4].text(0.1,
                         0.7, f'Teacher Stats:\n'
                         f'Mean: {teacher_seg_np.mean():.3f}\n'
@@ -628,9 +545,6 @@ def main(obj_names, args):
                                   seg_distill_loss.item(), n_iter)
                 writer.add_scalar("Train/Original_Segmentation_Loss",
                                   orig_seg_loss.item(), n_iter)
-                # predict_and_visualize_heatmap(student_model,
-                #                               sample_batched["image"], device,
-                #                               save_root)
 
                 n_iter += 1
 
