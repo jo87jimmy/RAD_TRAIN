@@ -313,24 +313,29 @@ def main(obj_names, args):
         lambda_orig_seg = 10.0
 
         # 保持重建損失作為一個重要的基線
-        lambda_recon = 1.0
+        lambda_recon = 1.5
 
         # 適當降低分割蒸餾的權重，讓它與原始分割處於同等或稍低的地位
-        lambda_seg_distill = 5.0  # 或者您也可以從 1.0 開始
+        lambda_seg_distill = 2.0  # 或者您也可以從 1.0 開始
 
         # 特徵蒸餾作為輔助項，保持較低權重
-        lambda_feat_distill = 0.5
+        lambda_feat_distill = 1.0
 
         best_loss = float("inf")
         # 在訓練開始前初始化 best_seg_distill_loss
         best_seg_distill_loss = float('inf')  # 初始化為一個很大的數值
+        # 在訓練開始前初始化 best_orig_seg_loss
+        best_orig_seg_loss = float('inf')  # 初始化為一個很大的數值
+
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
 
             epoch_loss = 0.0  # 用來累加一整個 epoch 的 loss
-            num_batches = 0  # 批次數量計數器
             # 在訓練循環中累加 seg_distill_loss
             epoch_seg_distill_loss = 0.0
+            epoch_orig_seg_loss = 0.0
+
+            num_batches = 0  # 批次數量計數器
             for i_batch, sample_batched in enumerate(train_loader):
                 # 遍歷訓練資料集的每個批次
                 input_image = sample_batched["image"].to(device)  # 正常圖像
@@ -363,25 +368,7 @@ def main(obj_names, args):
                         F.normalize(teacher_features[i], p=2, dim=1))
 
                 # 2. 分割蒸餾損失 (Segmentation Distillation Loss)
-                # 讓學生的分割圖模仿教師的分割圖
-                # 這裡以 KL 散度為例，教師的輸出需要先經過 softmax 轉換成機率分佈
-                # --- 新增：定義溫度 ---
-                # temperature = 4.0  # 這是一個可以調整的超參數，通常在 2-10 之間
 
-                # 在 softmax 之前，將 logits 除以溫度
-                # teacher_seg_log_softmax = F.log_softmax(teacher_seg_map /
-                #                                         temperature,
-                #                                         dim=1)
-                # student_seg_log_softmax = F.log_softmax(student_seg_map /
-                #                                         temperature,
-                #                                         dim=1)
-
-                # KL 散度損失的計算需要乘以 T*T，以保持梯度的量級
-                # 這是 Hinton 的原始論文中提到的技巧
-                # seg_distill_loss = F.kl_div(
-                #     student_seg_log_softmax,
-                #     teacher_seg_log_softmax.exp(),
-                #     reduction='batchmean') * (temperature * temperature)
                 seg_distill_loss = F.mse_loss(student_seg_map, teacher_seg_map)
 
                 # 3. 原始分割損失 (Original Segmentation Loss)
@@ -434,8 +421,10 @@ def main(obj_names, args):
                 # 累加 epoch loss
                 epoch_loss += total_loss.item()
                 # 累加 seg_distill_loss
-                epoch_seg_distill_loss += seg_distill_loss.item(
-                )  # 或者 weighted_seg_distill_loss.item()
+                epoch_seg_distill_loss += seg_distill_loss.item()
+                # 累加 orig_seg_loss
+                epoch_orig_seg_loss += orig_seg_loss.item()
+
                 num_batches += 1
 
                 # 記錄訓練過程
@@ -471,21 +460,37 @@ def main(obj_names, args):
             #         f"✅ New best model saved at epoch {epoch}, avg_loss={avg_loss:.4f}"
             #     )
 
-            # 計算平均 Seg Distill Loss
-            avg_seg_distill_loss = epoch_seg_distill_loss / num_batches
+            #**原始分割損失具有最高權重(10.0)，表明它是最重要的訓練指標，其次是分割蒸餾損失(5.0)
+
+            # # 計算平均 Seg Distill Loss
+            # avg_seg_distill_loss = epoch_seg_distill_loss / num_batches
+            # print(
+            #     f"📊 Epoch {epoch} Average Seg Distill Loss: {avg_seg_distill_loss:.4f}"
+            # )
+
+            # # 改用 Seg Distill Loss 判斷最佳模型
+            # if avg_seg_distill_loss < best_seg_distill_loss:
+            #     best_seg_distill_loss = avg_seg_distill_loss
+            #     torch.save(student_model.state_dict(),
+            #                os.path.join(checkpoint_dir, obj_name + ".pckl"))
+            #     print(
+            #         f"✅ New best model saved at epoch {epoch}, seg_distill_loss={avg_seg_distill_loss:.4f}"
+            #     )
+
+            # 計算平均 Orig Seg Loss
+            avg_orig_seg_loss = epoch_orig_seg_loss / num_batches
             print(
-                f"📊 Epoch {epoch} Average Seg Distill Loss: {avg_seg_distill_loss:.4f}"
+                f"📊 Epoch {epoch} Average Orig Seg Loss: {avg_orig_seg_loss:.4f}"
             )
 
-            # 改用 Seg Distill Loss 判斷最佳模型
-            if avg_seg_distill_loss < best_seg_distill_loss:
-                best_seg_distill_loss = avg_seg_distill_loss
+            # 判斷是否保存最佳模型（改用 Orig Seg Loss）
+            if avg_orig_seg_loss < best_orig_seg_loss:
+                best_orig_seg_loss = avg_orig_seg_loss
                 torch.save(student_model.state_dict(),
                            os.path.join(checkpoint_dir, obj_name + ".pckl"))
                 print(
-                    f"✅ New best model saved at epoch {epoch}, seg_distill_loss={avg_seg_distill_loss:.4f}"
+                    f"✅ New best model saved at epoch {epoch}, orig_seg_loss={avg_orig_seg_loss:.4f}"
                 )
-
         # 關閉 TensorBoard 紀錄器，釋放資源
         writer.close()
         torch.cuda.empty_cache()
