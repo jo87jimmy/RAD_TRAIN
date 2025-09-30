@@ -303,7 +303,7 @@ def main(obj_names, args):
         # 假設是處理3通道的RGB圖像
         IMG_CHANNELS = 3
         # 分割任務是二分類 (異常 vs. 正常)
-        SEG_CLASSES = 1
+        SEG_CLASSES = 2
         # 建立教師模型的結構，輸入與輸出通道皆為 3（RGB），並移動到指定裝置上
         teacher_model = AnomalyDetectionModel(
             recon_in=IMG_CHANNELS,
