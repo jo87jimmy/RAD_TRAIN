@@ -300,9 +300,9 @@ class DecoderDiscriminative(nn.Module):
             nn.Conv2d(base_width, base_width, kernel_size=3, padding=1),
             nn.BatchNorm2d(base_width), nn.ReLU(inplace=True))
 
-        self.fin_out = nn.Conv2d(
-            base_width, out_channels, kernel_size=3,
-            padding=1)  # Final output for segmentation map
+        # 修正這裡：將 fin_out 變回 nn.Sequential
+        self.fin_out = nn.Sequential(
+            nn.Conv2d(base_width, out_channels, kernel_size=3, padding=1))
 
     def forward(self, b1, b2, b3, b4, b5, b6):
         up_b = self.up_b(b6)
