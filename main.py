@@ -177,9 +177,9 @@ def visualize_predictions(teacher_model, student_model, batch, device,
         gt_mask = batch["anomaly_mask"].to(device)
 
         # 教師預測
-        teacher_recon, teacher_seg, _ = teacher_model(aug_image)
+        teacher_recon, teacher_seg = teacher_model(aug_image)
         # 學生預測
-        student_recon, student_seg, _ = student_model(aug_image)
+        student_recon, student_seg = student_model(aug_image)
 
         # 轉換為 numpy 用於繪圖
         input_np = input_image.cpu().numpy()[0].transpose(1, 2, 0)
@@ -236,7 +236,7 @@ def visualize_predictions(teacher_model, student_model, batch, device,
         plt.tight_layout()
         plt.savefig(save_path + '.png', dpi=150, bbox_inches='tight')
         plt.close()
-
+        student_model.train()
         print(f"✅ Visualization saved: {save_path}.png")
 
 
@@ -254,10 +254,8 @@ def detailed_diagnostic_visualization(teacher_model, student_model, loss_focal,
         gt_mask = batch["anomaly_mask"].to(device)
 
         # 獲取預測
-        teacher_recon, teacher_seg, teacher_feats = teacher_model(
-            aug_image, return_feats=True)
-        student_recon, student_seg, student_feats = student_model(
-            aug_image, return_feats=True)
+        teacher_recon, teacher_seg = teacher_model(aug_image)
+        student_recon, student_seg = student_model(aug_image)
 
         # 計算當前損失（僅用於顯示）
         seg_distill_loss = F.mse_loss(student_seg, teacher_seg).item()
@@ -338,7 +336,7 @@ def detailed_diagnostic_visualization(teacher_model, student_model, loss_focal,
                     dpi=150,
                     bbox_inches='tight')
         plt.close()
-
+        student_model.train()
         print(f"✅ Diagnostic visualization saved: {save_path}_diagnostic.png")
 
 
