@@ -52,37 +52,6 @@ class AnomalyDetectionModel(nn.Module):
             return recon_image, seg_map
 
 
-# 2. 再定義注意力增強模型
-class AttentionEnhancedModel(AnomalyDetectionModel):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # 動態獲取判別網路的通道數
-        disc_channels = self.discriminator_subnet.encoder_segment.block6[
-            -3].out_channels
-        self.attention = nn.Sequential(
-            nn.Conv2d(disc_channels, disc_channels // 2, 3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(disc_channels // 2, 1, 3, padding=1),  # 輸出單通道注意力圖
-            nn.Sigmoid())
-
-    def forward(self, x, return_feats=False):
-        recon, seg, features = super().forward(x, return_feats=True)
-
-        # 生成注意力權重並調整到分割圖尺寸
-        attention_weights = self.attention(features[-1])
-        attention_weights = F.interpolate(attention_weights,
-                                          size=seg.shape[2:],
-                                          mode='bilinear')
-
-        # 應用注意力到分割圖
-        enhanced_seg = seg * attention_weights
-
-        if return_feats:
-            return recon, enhanced_seg, features
-        return recon, enhanced_seg
-
-
 class ReconstructiveSubNetwork(nn.Module):
 
     def __init__(self, in_channels=3, out_channels=3, base_width=128):
