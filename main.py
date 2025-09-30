@@ -303,7 +303,7 @@ def main(obj_names, args):
         # 假設是處理3通道的RGB圖像
         IMG_CHANNELS = 3
         # 分割任務是二分類 (異常 vs. 正常)
-        SEG_CLASSES = 2
+        SEG_CLASSES = 1
         # 建立教師模型的結構，輸入與輸出通道皆為 3（RGB），並移動到指定裝置上
         teacher_model = AnomalyDetectionModel(
             recon_in=IMG_CHANNELS,
@@ -425,7 +425,8 @@ def main(obj_names, args):
             for i_batch, sample_batched in enumerate(train_loader):
                 # 數據加載
                 input_image = sample_batched["image"].to(device)
-                ground_truth_mask = sample_batched["anomaly_mask"].to(device)
+                ground_truth_mask = sample_batched["anomaly_mask"].to(
+                    device).float()
                 aug_gray_batch = sample_batched["augmented_image"].to(device)
 
                 # --- 教師網路前向傳播 ---
