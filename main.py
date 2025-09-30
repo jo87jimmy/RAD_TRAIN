@@ -19,6 +19,7 @@ from data_loader import MVTecDRAEMTrainDataset
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from datetime import datetime
+from loss import FocalLoss, SSIM
 
 
 def setup_seed(seed):
@@ -366,6 +367,9 @@ def main(obj_names, args):
             last_epoch=-1)  # 從頭開始計算學習率
         # 定義損失函數
         loss_focal = FocalLoss()  #解決類別不平衡、強化模型對難分類樣本的學習。
+        loss_l2 = torch.nn.modules.loss.MSELoss()
+        loss_ssim = SSIM()
+        loss_focal = FocalLoss()
 
         path = f'./mvtec'  # 訓練資料路徑
         path_dtd = f'./dtd/images/'
@@ -402,123 +406,90 @@ def main(obj_names, args):
         n_iter = 0
 
         # --- 超參數定義 ---
-        # 將原始分割損失的權重提升為主要信號源
-        lambda_orig_seg = 1.0
-
-        # 保持重建損失作為一個重要的基線
-        lambda_recon = 1.0
-
-        # 適當降低分割蒸餾的權重，讓它與原始分割處於同等或稍低的地位
-        lambda_seg_distill = 0.5  # 或者您也可以從 1.0 開始
-
-        # 特徵蒸餾作為輔助項，保持較低權重
-        lambda_feat_distill = 0.1
+        lambda_l2 = 1.0
+        lambda_ssim = 1.0
+        lambda_segment = 1.0
+        lambda_distill = 0.5  # 蒸餾損失權重，作為輔助項
 
         best_loss = float("inf")
-        # 在訓練開始前初始化 best_seg_distill_loss
-        best_seg_distill_loss = float('inf')  # 初始化為一個很大的數值
-        # 在訓練開始前初始化 best_orig_seg_loss
-        best_orig_seg_loss = float('inf')  # 初始化為一個很大的數值
+        best_orig_seg_loss = float('inf')
 
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
 
-            epoch_loss = 0.0  # 用來累加一整個 epoch 的 loss
-            # 在訓練循環中累加 seg_distill_loss
+            epoch_loss = 0.0
             epoch_seg_distill_loss = 0.0
             epoch_orig_seg_loss = 0.0
+            num_batches = 0
 
-            num_batches = 0  # 批次數量計數器
             for i_batch, sample_batched in enumerate(train_loader):
-                # 遍歷訓練資料集的每個批次
-                input_image = sample_batched["image"].to(device)  # 正常圖像
-                ground_truth_mask = sample_batched["anomaly_mask"].to(
-                    device)  # 對應 aug_gray_batch 的遮罩
-                aug_gray_batch = sample_batched["augmented_image"].to(
-                    device)  # 帶異常的圖像
+                # 數據加載
+                input_image = sample_batched["image"].to(device)
+                ground_truth_mask = sample_batched["anomaly_mask"].to(device)
+                aug_gray_batch = sample_batched["augmented_image"].to(device)
 
-                # --- 教師網路前向傳播 (輸入帶異常的圖像) ---
+                # --- 教師網路前向傳播 ---
                 with torch.no_grad():
-                    # 教師模型對 aug_gray_batch 進行判斷，以提供蒸餾目標
-                    _, teacher_seg_map, teacher_features = teacher_model(
+                    teacher_recon, teacher_seg_map, teacher_features = teacher_model(
                         aug_gray_batch, return_feats=True)
 
-                # --- 學生網路前向傳播 (輸入帶異常的圖像，用於分割) ---
-                # 學生模型對 aug_gray_batch 進行判斷
-                _, student_seg_map, student_features = student_model(
+                # --- 學生網路前向傳播 ---
+                student_recon, student_seg_map, student_features = student_model(
                     aug_gray_batch, return_feats=True)
 
                 # --- 計算損失函數 ---
+                # 1. 重建損失
+                l2_loss = loss_l2(student_recon, input_image)
+                ssim_loss = loss_ssim(student_recon, input_image)
 
-                # 1. 特徵蒸餾損失
-                feat_distill_loss = 0.0
-                for i in range(len(student_features)):
-                    # 將學生特徵對齊到教師特徵的維度
-                    aligned_student_feat = feature_aligns[i](
-                        student_features[i])
-                    feat_distill_loss += F.mse_loss(
-                        F.normalize(aligned_student_feat, p=2, dim=1),
-                        F.normalize(teacher_features[i], p=2, dim=1))
+                # 2. 分割損失
+                segment_loss = loss_focal(student_seg_map, ground_truth_mask)
 
-                # 2. 分割蒸餾損失 (Segmentation Distillation Loss)
-
+                # 3. 知識蒸餾損失
+                recon_distill_loss = F.mse_loss(student_recon, teacher_recon)
                 seg_distill_loss = F.mse_loss(student_seg_map, teacher_seg_map)
+                distill_loss = recon_distill_loss + seg_distill_loss
 
-                # 3. 原始分割損失 (Original Segmentation Loss)
-                # 使用真實的異常遮罩監督學生的分割結果
-                # 以焦點損失 (Focal Loss) 為例
-                student_seg_softmax = torch.softmax(student_seg_map, dim=1)
-                orig_seg_loss = loss_focal(student_seg_softmax,
-                                           ground_truth_mask)
+                # --- 總損失（使用權重參數）---
+                total_loss = (lambda_l2 * l2_loss + lambda_ssim * ssim_loss +
+                              lambda_segment * segment_loss +
+                              lambda_distill * distill_loss)
 
-                # 4. 新增：重建損失 (Reconstruction Loss)
-                # 這個損失只在輸入是 "正常" 圖像時計算才有意義，
-                # 但在 DRAEM 的設定中，我們用 aug_gray_batch，它是有異常的。
-                # 正確的做法是讓重建網路去重建原始的、無異常的圖像 input_image
-
-                # 讓學生模型也對原始正常圖像進行重建
-                student_recon_normal, _ = student_model(input_image,
-                                                        return_feats=False)
-                recon_loss = F.l1_loss(student_recon_normal, input_image)
-
-                # --- 重建網路的學生判別網路總損失 ---
-                # --- 總損失與更新 ---
-                total_loss = (lambda_recon * recon_loss +
-                              lambda_feat_distill * feat_distill_loss +
-                              lambda_seg_distill * seg_distill_loss +
-                              lambda_orig_seg * orig_seg_loss)
-                # ==================== 診斷程式碼 ====================
-                if i_batch % 50 == 0:  # 每 50 個 batch 印一次
+                # ==================== 診斷輸出 ====================
+                if i_batch % 50 == 0:
                     print(f"\n[Epoch {epoch}, Batch {i_batch}] Loss values:")
                     print(
-                        f"  - Recon Loss        : {recon_loss.item():.4f} (Weighted: {lambda_recon * recon_loss.item():.4f})"
+                        f"  - L2 Loss           : {l2_loss.item():.4f} (Weighted: {lambda_l2 * l2_loss.item():.4f})"
                     )
                     print(
-                        f"  - Feat Distill Loss : {feat_distill_loss.item():.4f} (Weighted: {lambda_feat_distill * feat_distill_loss.item():.4f})"
+                        f"  - SSIM Loss         : {ssim_loss.item():.4f} (Weighted: {lambda_ssim * ssim_loss.item():.4f})"
                     )
                     print(
-                        f"  - Seg Distill Loss  : {seg_distill_loss.item():.4f} (Weighted: {lambda_seg_distill * seg_distill_loss.item():.4f})"
+                        f"  - Segment Loss      : {segment_loss.item():.4f} (Weighted: {lambda_segment * segment_loss.item():.4f})"
                     )
                     print(
-                        f"  - Orig Seg Loss     : {orig_seg_loss.item():.4f} (Weighted: {lambda_orig_seg * orig_seg_loss.item():.4f})"
+                        f"  - Recon Distill Loss: {recon_distill_loss.item():.4f}"
+                    )
+                    print(
+                        f"  - Seg Distill Loss  : {seg_distill_loss.item():.4f}"
+                    )
+                    print(
+                        f"  - Total Distill Loss: {distill_loss.item():.4f} (Weighted: {lambda_distill * distill_loss.item():.4f})"
                     )
                     print(f"  - Total Loss        : {total_loss.item():.4f}")
-                # --- 反向傳播與參數更新 ---
-                # 清除先前計算的梯度
+
+                # --- 反向傳播與優化 ---
                 optimizer.zero_grad()
-                # 計算梯度
                 total_loss.backward()
-                # 更新學生判別網路 (以及重建網路) 的權重
                 optimizer.step()
 
-                # 每 N 個批次進行一次視覺化
-                if i_batch % 100 == 0:  # 每100個batch視覺化一次
+                # --- 視覺化 ---
+                if i_batch % 100 == 0:
                     visualize_predictions(
                         teacher_model, student_model, sample_batched, device,
                         os.path.join(save_root,
                                      f"vis_epoch_{epoch}_batch_{i_batch}"))
 
-                # 每500個batch進行詳細診斷
                 if i_batch % 500 == 0:
                     detailed_diagnostic_visualization(
                         teacher_model, student_model, loss_focal,
@@ -527,88 +498,36 @@ def main(obj_names, args):
                                      f"diag_epoch_{epoch}_batch_{i_batch}"),
                         epoch, i_batch)
 
-                # 累加 epoch loss
+                # --- 累加損失統計 ---
                 epoch_loss += total_loss.item()
-                # 累加 seg_distill_loss
                 epoch_seg_distill_loss += seg_distill_loss.item()
-                # 累加 orig_seg_loss
-                epoch_orig_seg_loss += orig_seg_loss.item()
-
+                epoch_orig_seg_loss += segment_loss.item(
+                )  # 修正：使用segment_loss而不是orig_seg_loss
                 num_batches += 1
-
-                # 記錄訓練過程
-                writer.add_scalar("Train/Total_Loss", total_loss.item(),
-                                  n_iter)
-                writer.add_scalar("Train/Feature_Distillation_Loss",
-                                  feat_distill_loss.item(), n_iter)
-                writer.add_scalar("Train/Segmentation_Distillation_Loss",
-                                  seg_distill_loss.item(), n_iter)
-                writer.add_scalar("Train/Original_Segmentation_Loss",
-                                  orig_seg_loss.item(), n_iter)
-
                 n_iter += 1
 
-            # 每個 epoch 結束後更新學習率並保存模型
+            # --- Epoch結束處理 ---
             scheduler.step()
-            # torch.save(student_model.state_dict(),
-            #            os.path.join(checkpoint_dir, obj_name + ".pckl"))
 
-            # 如果比歷史最佳還低，就保存為 best
-            # 計算平均 loss
-            # avg_loss = epoch_loss / num_batches
-            # print(f"📊 Epoch {epoch} Average Loss: {avg_loss:.4f}")
-            # # 判斷是否保存最佳模型
-            # if avg_loss < best_loss:
-            #     best_loss = avg_loss
-            #     torch.save(student_model.state_dict(),
-            #                os.path.join(checkpoint_dir, obj_name + ".pckl"))
-            #     print(
-            #         f"✅ New best model saved at epoch {epoch}, avg_loss={avg_loss:.4f}"
-            #     )
-
-            #**原始分割損失具有最高權重(10.0)，表明它是最重要的訓練指標，其次是分割蒸餾損失(5.0)
-
-            # # 計算平均 Seg Distill Loss
-            # avg_seg_distill_loss = epoch_seg_distill_loss / num_batches
-            # print(
-            #     f"📊 Epoch {epoch} Average Seg Distill Loss: {avg_seg_distill_loss:.4f}"
-            # )
-
-            # # 改用 Seg Distill Loss 判斷最佳模型
-            # if avg_seg_distill_loss < best_seg_distill_loss:
-            #     best_seg_distill_loss = avg_seg_distill_loss
-            #     torch.save(student_model.state_dict(),
-            #                os.path.join(checkpoint_dir, obj_name + ".pckl"))
-            #     print(
-            #         f"✅ New best model saved at epoch {epoch}, seg_distill_loss={avg_seg_distill_loss:.4f}"
-            #     )
-
-            # --- 計算整個 Epoch 的平均損失 ---
-            # 雖然不用 avg_total_loss 來存模型，但打印出來有助於觀察整體收斂情況
+            # 計算平均損失
             avg_total_loss = epoch_loss / num_batches
             avg_orig_seg_loss = epoch_orig_seg_loss / num_batches
 
             print("-" * 50)
             print(f"Epoch {epoch} Summary:")
-            print(f"  - Average Total Loss        : {avg_total_loss:.6f}")
-            print(
-                f"  - Average Orig Seg Loss     : {avg_orig_seg_loss:.6f}  <-- 我們用這個指標來判斷最佳模型"
-            )
+            print(f"  - Average Total Loss    : {avg_total_loss:.6f}")
+            print(f"  - Average Seg Loss      : {avg_orig_seg_loss:.6f}")
             print("-" * 50)
 
-            # --- 判斷並儲存最佳模型 ---
-            # 核心邏輯：如果這個 Epoch 的平均原始分割損失比歷史最佳還要低，就更新並儲存模型
+            # --- 保存最佳模型 ---
             if avg_orig_seg_loss < best_orig_seg_loss:
                 best_orig_seg_loss = avg_orig_seg_loss
                 save_path = os.path.join(checkpoint_dir,
                                          f"{obj_name}_best.pckl")
                 torch.save(student_model.state_dict(), save_path)
                 print(f"✅ New best model saved at epoch {epoch}!")
-                print(
-                    f"   Best Original Segmentation Loss updated to: {best_orig_seg_loss:.6f}"
-                )
-        # 關閉 TensorBoard 紀錄器，釋放資源
-        writer.close()
+                print(f"   Best Segmentation Loss: {best_orig_seg_loss:.6f}")
+
         torch.cuda.empty_cache()
 
 
