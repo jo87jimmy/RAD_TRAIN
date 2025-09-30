@@ -322,7 +322,8 @@ def main(obj_names, args):
         lambda_feat_distill = 0.5
 
         best_loss = float("inf")
-
+        # 在訓練開始前初始化 best_seg_distill_loss
+        best_seg_distill_loss = float('inf')  # 初始化為一個很大的數值
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
 
