@@ -557,8 +557,7 @@ def main(obj_names, args):
 
                         # 直接將原始的 input_image_val (3通道) 傳入模型
                         _, student_seg_map_val_raw, _ = student_model(
-                            input_image_val_gray,
-                            return_feats=True)  # 使用灰度圖作為輸入
+                            input_image_val, return_feats=True)  # 使用灰度圖作為輸入
 
                         print(
                             f"  student_seg_map_val_raw shape: {student_seg_map_val_raw.shape}"
