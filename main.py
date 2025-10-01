@@ -15,11 +15,13 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 from loss import FocalLoss, SSIM
 from model_unet import AnomalyDetectionModel
-from data_loader import MVTecDRAEMTrainDataset
+from data_loader import MVTecDRAEMTrainDataset, MVTecDRAEMTestDataset
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from datetime import datetime
 from loss import FocalLoss, SSIM
+import numpy as np
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, precision_score, recall_score, f1_score, jaccard_score
 
 
 def setup_seed(seed):
@@ -386,6 +388,17 @@ def main(obj_names, args):
                                   batch_size=args.bs,
                                   shuffle=True,
                                   num_workers=4)
+
+        # --- 驗證資料加載 (新增部分) ---
+        val_dataset = MVTecDRAEMTestDataset(
+            root_dir=path,  # 傳遞 mvtec 的根目錄
+            category_name=obj_name,  # 傳遞類別名稱
+            resize_shape=[256, 256])
+        val_loader = DataLoader(val_dataset,
+                                batch_size=args.bs,
+                                shuffle=False,
+                                num_workers=4)
+
         # 主儲存資料夾路徑
         save_root = "./save_files"
 
@@ -408,8 +421,8 @@ def main(obj_names, args):
         # --- 超參數定義 ---
         lambda_l2 = 1.0
         lambda_ssim = 1.0
-        lambda_segment = 1.5
-        lambda_distill = 0.2  # 蒸餾損失權重，作為輔助項
+        lambda_segment = 1.5  # 分割損失權重 1.0
+        lambda_distill = 0.2  # 蒸餾損失權重，作為輔助項 0.5
 
         best_loss = float("inf")
         best_orig_seg_loss = float('inf')
@@ -514,11 +527,98 @@ def main(obj_names, args):
             avg_total_loss = epoch_loss / num_batches
             avg_orig_seg_loss = epoch_orig_seg_loss / num_batches
 
-            print("-" * 50)
             print(f"Epoch {epoch} Summary:")
             print(f"  - Average Total Loss    : {avg_total_loss:.6f}")
             print(f"  - Average Seg Loss      : {avg_orig_seg_loss:.6f}")
             print("-" * 50)
+
+            # --- 缺陷檢測指標計算 (新增部分) ---
+            # 確保你有一個驗證 DataLoader (val_loader)
+            if val_loader:
+                student_model.eval()  # 設定為評估模式
+                all_pred_masks = []
+                all_gt_masks = []
+                with torch.no_grad():
+                    for i_batch_val, sample_batched_val in enumerate(
+                            val_loader):
+                        input_image_val = sample_batched_val["image"].to(
+                            device)
+                        ground_truth_mask_val = sample_batched_val[
+                            "anomaly_mask"].to(device).float()
+                        aug_gray_batch_val = sample_batched_val[
+                            "augmented_image"].to(device)
+
+                        _, student_seg_map_val, _ = student_model(
+                            aug_gray_batch_val, return_feats=True)
+
+                        # 將預測結果和真實標籤收集起來
+                        all_pred_masks.append(
+                            student_seg_map_val.cpu().numpy())
+                        all_gt_masks.append(
+                            ground_truth_mask_val.cpu().numpy())
+
+                # 將所有批次的結果串接成一個大陣列
+                all_pred_masks = np.concatenate(all_pred_masks, axis=0)
+                all_gt_masks = np.concatenate(all_gt_masks, axis=0)
+
+                # 將多維度圖像展平為一維陣列，以便計算指標
+                all_pred_masks_flat = all_pred_masks.flatten()
+                all_gt_masks_flat = all_gt_masks.flatten()
+
+                # 計算 P-AUROC
+                # 注意: roc_curve 需要 positive class 為 1
+                try:
+                    fpr, tpr, _ = roc_curve(all_gt_masks_flat,
+                                            all_pred_masks_flat)
+                    pixel_auroc = auc(fpr, tpr)
+                except ValueError:
+                    pixel_auroc = float('nan')  # 如果只有一個類別，roc_curve 會報錯
+
+                # 計算 PR-AUC
+                try:
+                    precision_curve, recall_curve, _ = precision_recall_curve(
+                        all_gt_masks_flat, all_pred_masks_flat)
+                    pixel_pr_auc = auc(recall_curve, precision_curve)
+                except ValueError:
+                    pixel_pr_auc = float('nan')
+
+                # 設定閾值計算其他指標 (例如 0.5)
+                threshold = 0.5
+                binary_pred_masks_flat = (all_pred_masks_flat
+                                          > threshold).astype(int)
+
+                pixel_precision = precision_score(all_gt_masks_flat,
+                                                  binary_pred_masks_flat,
+                                                  zero_division=0)
+                pixel_recall = recall_score(all_gt_masks_flat,
+                                            binary_pred_masks_flat,
+                                            zero_division=0)
+                pixel_f1 = f1_score(all_gt_masks_flat,
+                                    binary_pred_masks_flat,
+                                    zero_division=0)
+                pixel_iou = jaccard_score(all_gt_masks_flat,
+                                          binary_pred_masks_flat,
+                                          zero_division=0)
+
+                print("-" * 50)
+                print(f"Epoch {epoch} Anomaly Detection Metrics:")
+                print(f"  - Pixel-level AUROC   : {pixel_auroc:.4f}")
+                print(f"  - Pixel-level PR-AUC  : {pixel_pr_auc:.4f}")
+                print(
+                    f"  - Pixel-level Precision: {pixel_precision:.4f} (at threshold {threshold})"
+                )
+                print(
+                    f"  - Pixel-level Recall  : {pixel_recall:.4f} (at threshold {threshold})"
+                )
+                print(
+                    f"  - Pixel-level F1 Score: {pixel_f1:.4f} (at threshold {threshold})"
+                )
+                print(
+                    f"  - Pixel-level IoU     : {pixel_iou:.4f} (at threshold {threshold})"
+                )
+                print("-" * 50)
+
+                student_model.train()  # 切回訓練模式
 
             # --- 保存最佳模型 ---
             if avg_orig_seg_loss < best_orig_seg_loss:
