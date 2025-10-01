@@ -554,16 +554,10 @@ def main(obj_names, args):
                         print(
                             f"  ground_truth_mask_val shape: {ground_truth_mask_val.shape}"
                         )
-                        # 確保輸入給 student_model 的是單通道灰度圖
-                        if input_image_val.shape[1] == 3:  # 如果是RGB圖
-                            input_image_val_gray = input_image_val.mean(
-                                dim=1, keepdim=True)
-                        else:
-                            input_image_val_gray = input_image_val
 
+                        # 直接將原始的 input_image_val (3通道) 傳入模型
                         _, student_seg_map_val, _ = student_model(
-                            input_image_val_gray,
-                            return_feats=True)  # 使用灰度圖作為輸入
+                            input_image_val, return_feats=True)
 
                         print(
                             f"  student_seg_map_val shape: {student_seg_map_val.shape}"
