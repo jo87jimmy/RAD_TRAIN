@@ -7,69 +7,68 @@ import glob
 import imgaug.augmenters as iaa
 from perlin import rand_perlin_2d_np
 
+# class MVTecDRAEMTestDataset(Dataset):
 
-class MVTecDRAEMTestDataset(Dataset):
+#     def __init__(self, root_dir, resize_shape=None):
+#         self.root_dir = root_dir
+#         self.images = sorted(glob.glob(root_dir + "/*/*.png"))
+#         self.resize_shape = resize_shape
 
-    def __init__(self, root_dir, resize_shape=None):
-        self.root_dir = root_dir
-        self.images = sorted(glob.glob(root_dir + "/*/*.png"))
-        self.resize_shape = resize_shape
+#     def __len__(self):
+#         return len(self.images)
 
-    def __len__(self):
-        return len(self.images)
+#     def transform_image(self, image_path, mask_path):
+#         image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+#         if mask_path is not None:
+#             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+#         else:
+#             mask = np.zeros((image.shape[0], image.shape[1]))
+#         if self.resize_shape != None:
+#             image = cv2.resize(image,
+#                                dsize=(self.resize_shape[1],
+#                                       self.resize_shape[0]))
+#             mask = cv2.resize(mask,
+#                               dsize=(self.resize_shape[1],
+#                                      self.resize_shape[0]))
 
-    def transform_image(self, image_path, mask_path):
-        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        if mask_path is not None:
-            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        else:
-            mask = np.zeros((image.shape[0], image.shape[1]))
-        if self.resize_shape != None:
-            image = cv2.resize(image,
-                               dsize=(self.resize_shape[1],
-                                      self.resize_shape[0]))
-            mask = cv2.resize(mask,
-                              dsize=(self.resize_shape[1],
-                                     self.resize_shape[0]))
+#         image = image / 255.0
+#         mask = mask / 255.0
 
-        image = image / 255.0
-        mask = mask / 255.0
+#         image = np.array(image).reshape(
+#             (image.shape[0], image.shape[1], 3)).astype(np.float32)
+#         mask = np.array(mask).reshape(
+#             (mask.shape[0], mask.shape[1], 1)).astype(np.float32)
 
-        image = np.array(image).reshape(
-            (image.shape[0], image.shape[1], 3)).astype(np.float32)
-        mask = np.array(mask).reshape(
-            (mask.shape[0], mask.shape[1], 1)).astype(np.float32)
+#         image = np.transpose(image, (2, 0, 1))
+#         mask = np.transpose(mask, (2, 0, 1))
+#         return image, mask
 
-        image = np.transpose(image, (2, 0, 1))
-        mask = np.transpose(mask, (2, 0, 1))
-        return image, mask
+#     def __getitem__(self, idx):
+#         if torch.is_tensor(idx):
+#             idx = idx.tolist()
 
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
+#         img_path = self.images[idx]
+#         dir_path, file_name = os.path.split(img_path)
+#         base_dir = os.path.basename(dir_path)
+#         if base_dir == 'good':
+#             image, mask = self.transform_image(img_path, None)
+#             has_anomaly = np.array([0], dtype=np.float32)
+#         else:
+#             mask_path = os.path.join(dir_path, '../../ground_truth/')
+#             mask_path = os.path.join(mask_path, base_dir)
+#             mask_file_name = file_name.split(".")[0] + "_mask.png"
+#             mask_path = os.path.join(mask_path, mask_file_name)
+#             image, mask = self.transform_image(img_path, mask_path)
+#             has_anomaly = np.array([1], dtype=np.float32)
 
-        img_path = self.images[idx]
-        dir_path, file_name = os.path.split(img_path)
-        base_dir = os.path.basename(dir_path)
-        if base_dir == 'good':
-            image, mask = self.transform_image(img_path, None)
-            has_anomaly = np.array([0], dtype=np.float32)
-        else:
-            mask_path = os.path.join(dir_path, '../../ground_truth/')
-            mask_path = os.path.join(mask_path, base_dir)
-            mask_file_name = file_name.split(".")[0] + "_mask.png"
-            mask_path = os.path.join(mask_path, mask_file_name)
-            image, mask = self.transform_image(img_path, mask_path)
-            has_anomaly = np.array([1], dtype=np.float32)
+#         sample = {
+#             'image': image,
+#             'has_anomaly': has_anomaly,
+#             'mask': mask,
+#             'idx': idx
+#         }
 
-        sample = {
-            'image': image,
-            'has_anomaly': has_anomaly,
-            'mask': mask,
-            'idx': idx
-        }
-
-        return sample
+#         return sample
 
 
 class MVTecDRAEM_Test_Visual_Dataset(Dataset):
@@ -312,9 +311,14 @@ class MVTecDRAEMTestDataset(Dataset):
             # 對於每個異常圖像，找到其對應的 ground_truth 掩碼
             for img_path in defect_image_paths:
                 img_filename = os.path.basename(img_path)
-                # 根據你的路徑結構，ground_truth 檔案名與圖片檔案名相同
-                gt_mask_path = os.path.join(ground_truth_path, defect_type,
-                                            img_filename)
+                # ****** 修改這裡：將 '_mask' 插入到檔案名中 ******
+                # 假設檔案名格式為 'xxx.png'，我們希望變成 'xxx_mask.png'
+                name_without_ext, ext = os.path.splitext(img_filename)
+                gt_mask_filename = f"{name_without_ext}_mask{ext}"
+
+                gt_mask_path = os.path.join(
+                    ground_truth_path, defect_type,
+                    gt_mask_filename)  # 使用新的帶 _mask 的檔案名
                 self.anomaly_masks_paths.append(gt_mask_path)
 
     def __len__(self):
