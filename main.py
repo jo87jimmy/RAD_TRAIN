@@ -547,9 +547,27 @@ def main(obj_names, args):
                             "anomaly_mask"].to(device).float()
                         aug_gray_batch_val = sample_batched_val[
                             "augmented_image"].to(device)
+                        print(f"Epoch {epoch}, Batch {i_batch_val}:")
+                        print(
+                            f"  input_image_val shape: {input_image_val.shape}"
+                        )
+                        print(
+                            f"  ground_truth_mask_val shape: {ground_truth_mask_val.shape}"
+                        )
+                        # 確保輸入給 student_model 的是單通道灰度圖
+                        if input_image_val.shape[1] == 3:  # 如果是RGB圖
+                            input_image_val_gray = input_image_val.mean(
+                                dim=1, keepdim=True)
+                        else:
+                            input_image_val_gray = input_image_val
 
                         _, student_seg_map_val, _ = student_model(
-                            aug_gray_batch_val, return_feats=True)
+                            input_image_val_gray,
+                            return_feats=True)  # 使用灰度圖作為輸入
+
+                        print(
+                            f"  student_seg_map_val shape: {student_seg_map_val.shape}"
+                        )
 
                         # 將預測結果和真實標籤收集起來
                         all_pred_masks.append(
@@ -557,6 +575,12 @@ def main(obj_names, args):
                         all_gt_masks.append(
                             ground_truth_mask_val.cpu().numpy())
 
+                print(
+                    f"  Total all_pred_masks elements: {np.concatenate(all_pred_masks, axis=0).flatten().shape[0]}"
+                )
+                print(
+                    f"  Total all_gt_masks elements: {np.concatenate(all_gt_masks, axis=0).flatten().shape[0]}"
+                )
                 # 將所有批次的結果串接成一個大陣列
                 all_pred_masks = np.concatenate(all_pred_masks, axis=0)
                 all_gt_masks = np.concatenate(all_gt_masks, axis=0)
@@ -564,7 +588,11 @@ def main(obj_names, args):
                 # 將多維度圖像展平為一維陣列，以便計算指標
                 all_pred_masks_flat = all_pred_masks.flatten()
                 all_gt_masks_flat = all_gt_masks.flatten()
-
+                print(
+                    f"  Concatenated all_pred_masks shape: {all_pred_masks.shape}"
+                )
+                print(
+                    f"  Concatenated all_gt_masks shape: {all_gt_masks.shape}")
                 # 計算 P-AUROC
                 # 注意: roc_curve 需要 positive class 為 1
                 try:
