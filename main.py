@@ -556,12 +556,17 @@ def main(obj_names, args):
                         )
 
                         # 直接將原始的 input_image_val (3通道) 傳入模型
-                        _, student_seg_map_val, _ = student_model(
-                            input_image_val, return_feats=True)
+                        _, student_seg_map_val_raw, _ = student_model(
+                            input_image_val_gray,
+                            return_feats=True)  # 使用灰度圖作為輸入
 
                         print(
-                            f"  student_seg_map_val shape: {student_seg_map_val.shape}"
+                            f"  student_seg_map_val_raw shape: {student_seg_map_val_raw.shape}"
                         )
+                        student_seg_map_val = student_seg_map_val_raw[:,
+                                                                      1, :, :]
+                        student_seg_map_val = student_seg_map_val.unsqueeze(
+                            1)  # 確保形狀是 (B, 1, H, W)
 
                         # 將預測結果和真實標籤收集起來
                         all_pred_masks.append(
