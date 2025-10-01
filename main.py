@@ -423,10 +423,7 @@ def main(obj_names, args):
         lambda_ssim = 1.0
         lambda_segment = 1.5  # 分割損失權重 1.0
         lambda_distill = 0.2  # 蒸餾損失權重，作為輔助項 0.5
-
-        best_loss = float("inf")
-        best_orig_seg_loss = float('inf')
-        best_pixel_auroc = 0.0  # ****** 新增：初始化最佳 Pixel AUROC ******
+        best_pixel_auroc = 0.0  # 初始化最佳 Pixel AUROC
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
 
@@ -547,21 +544,11 @@ def main(obj_names, args):
                             "anomaly_mask"].to(device).float()
                         aug_gray_batch_val = sample_batched_val[
                             "augmented_image"].to(device)
-                        # print(f"Epoch {epoch}, Batch {i_batch_val}:")
-                        # print(
-                        #     f"  input_image_val shape: {input_image_val.shape}"
-                        # )
-                        # print(
-                        #     f"  ground_truth_mask_val shape: {ground_truth_mask_val.shape}"
-                        # )
 
                         # 直接將原始的 input_image_val (3通道) 傳入模型
                         _, student_seg_map_val_raw, _ = student_model(
                             input_image_val, return_feats=True)  # 使用灰度圖作為輸入
 
-                        # print(
-                        #     f"  student_seg_map_val_raw shape: {student_seg_map_val_raw.shape}"
-                        # )
                         student_seg_map_val = student_seg_map_val_raw[:,
                                                                       1, :, :]
                         student_seg_map_val = student_seg_map_val.unsqueeze(
@@ -573,12 +560,6 @@ def main(obj_names, args):
                         all_gt_masks.append(
                             ground_truth_mask_val.cpu().numpy())
 
-                # print(
-                #     f"  Total all_pred_masks elements: {np.concatenate(all_pred_masks, axis=0).flatten().shape[0]}"
-                # )
-                # print(
-                #     f"  Total all_gt_masks elements: {np.concatenate(all_gt_masks, axis=0).flatten().shape[0]}"
-                # )
                 # 將所有批次的結果串接成一個大陣列
                 all_pred_masks = np.concatenate(all_pred_masks, axis=0)
                 all_gt_masks = np.concatenate(all_gt_masks, axis=0)
@@ -588,11 +569,6 @@ def main(obj_names, args):
                 all_gt_masks_flat = all_gt_masks.flatten()
                 #將 ground truth 轉換為整數類型
                 all_gt_masks_flat = all_gt_masks_flat.astype(int)
-                # print(
-                #     f"  Concatenated all_pred_masks shape: {all_pred_masks.shape}"
-                # )
-                # print(
-                #     f"  Concatenated all_gt_masks shape: {all_gt_masks.shape}")
 
                 # 計算 P-AUROC
                 # 注意: roc_curve 需要 positive class 為 1
@@ -671,15 +647,6 @@ def main(obj_names, args):
                         f"✅ New best model saved at epoch {epoch} based on Pixel-level AUROC!"
                     )
                     print(f"   Best Pixel-level AUROC: {best_pixel_auroc:.4f}")
-
-            # # --- 保存最佳模型 ---
-            # if avg_orig_seg_loss < best_orig_seg_loss:
-            #     best_orig_seg_loss = avg_orig_seg_loss
-            #     save_path = os.path.join(checkpoint_dir,
-            #                              f"{obj_name}_best.pckl")
-            #     torch.save(student_model.state_dict(), save_path)
-            #     print(f"✅ New best model saved at epoch {epoch}!")
-            #     print(f"   Best Segmentation Loss: {best_orig_seg_loss:.6f}")
 
         torch.cuda.empty_cache()
 
