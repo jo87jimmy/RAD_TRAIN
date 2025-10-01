@@ -586,16 +586,22 @@ def main(obj_names, args):
                 # 將多維度圖像展平為一維陣列，以便計算指標
                 all_pred_masks_flat = all_pred_masks.flatten()
                 all_gt_masks_flat = all_gt_masks.flatten()
+                #將 ground truth 轉換為整數類型
+                all_gt_masks_flat = all_gt_masks_flat.astype(int)
                 print(
                     f"  Concatenated all_pred_masks shape: {all_pred_masks.shape}"
                 )
                 print(
                     f"  Concatenated all_gt_masks shape: {all_gt_masks.shape}")
+
                 # 計算 P-AUROC
                 # 注意: roc_curve 需要 positive class 為 1
                 try:
-                    fpr, tpr, _ = roc_curve(all_gt_masks_flat,
-                                            all_pred_masks_flat)
+                    # roc_curve 和 precision_recall_curve 通常可以處理 0.0/1.0 的浮點數
+                    # 但為了保險起見和保持一致性，建議也傳入 int 類型
+                    fpr, tpr, _ = roc_curve(
+                        all_gt_masks_flat, all_pred_masks_flat
+                    )  # 這裡 all_pred_masks_flat 還是連續值，是正確的
                     pixel_auroc = auc(fpr, tpr)
                 except ValueError:
                     pixel_auroc = float('nan')  # 如果只有一個類別，roc_curve 會報錯
@@ -603,7 +609,8 @@ def main(obj_names, args):
                 # 計算 PR-AUC
                 try:
                     precision_curve, recall_curve, _ = precision_recall_curve(
-                        all_gt_masks_flat, all_pred_masks_flat)
+                        all_gt_masks_flat, all_pred_masks_flat
+                    )  # 這裡 all_pred_masks_flat 還是連續值，是正確的
                     pixel_pr_auc = auc(recall_curve, precision_curve)
                 except ValueError:
                     pixel_pr_auc = float('nan')
@@ -613,18 +620,22 @@ def main(obj_names, args):
                 binary_pred_masks_flat = (all_pred_masks_flat
                                           > threshold).astype(int)
 
-                pixel_precision = precision_score(all_gt_masks_flat,
-                                                  binary_pred_masks_flat,
-                                                  zero_division=0)
-                pixel_recall = recall_score(all_gt_masks_flat,
-                                            binary_pred_masks_flat,
-                                            zero_division=0)
-                pixel_f1 = f1_score(all_gt_masks_flat,
-                                    binary_pred_masks_flat,
-                                    zero_division=0)
-                pixel_iou = jaccard_score(all_gt_masks_flat,
-                                          binary_pred_masks_flat,
-                                          zero_division=0)
+                pixel_precision = precision_score(
+                    all_gt_masks_flat,  # y_true 現在是 int
+                    binary_pred_masks_flat,  # y_pred 也是 int
+                    zero_division=0)
+                pixel_recall = recall_score(
+                    all_gt_masks_flat,  # y_true 現在是 int
+                    binary_pred_masks_flat,  # y_pred 也是 int
+                    zero_division=0)
+                pixel_f1 = f1_score(
+                    all_gt_masks_flat,  # y_true 現在是 int
+                    binary_pred_masks_flat,  # y_pred 也是 int
+                    zero_division=0)
+                pixel_iou = jaccard_score(
+                    all_gt_masks_flat,  # y_true 現在是 int
+                    binary_pred_masks_flat,  # y_pred 也是 int
+                    zero_division=0)
 
                 print("-" * 50)
                 print(f"Epoch {epoch} Anomaly Detection Metrics:")
