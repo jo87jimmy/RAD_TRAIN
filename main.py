@@ -426,7 +426,7 @@ def main(obj_names, args):
 
         best_loss = float("inf")
         best_orig_seg_loss = float('inf')
-
+        best_pixel_auroc = 0.0  # ****** 新增：初始化最佳 Pixel AUROC ******
         for epoch in range(args.epochs):
             print("Epoch: " + str(epoch))
 
