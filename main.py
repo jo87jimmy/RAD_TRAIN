@@ -434,7 +434,7 @@ def main(obj_names, args):
         # --- 超參數定義 ---
         lambda_l2 = 1.0
         lambda_ssim = 1.0
-        lambda_segment = 1.5  # 分割損失權重 1.0 -> 1.5 ->2.0
+        lambda_segment = 2.0  # 分割損失權重 1.0 -> 1.5 ->2.0
         lambda_distill = 0.2  # 蒸餾損失權重，作為輔助項 0.5
         best_pixel_auroc = 0.0  # 初始化最佳 Pixel AUROC
         for epoch in range(args.epochs):
