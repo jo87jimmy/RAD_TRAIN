@@ -657,14 +657,29 @@ def main(obj_names, args):
 
                 student_model.train()  # 切回訓練模式
 
-            # --- 保存最佳模型 ---
-            if avg_orig_seg_loss < best_orig_seg_loss:
-                best_orig_seg_loss = avg_orig_seg_loss
-                save_path = os.path.join(checkpoint_dir,
-                                         f"{obj_name}_best.pckl")
-                torch.save(student_model.state_dict(), save_path)
-                print(f"✅ New best model saved at epoch {epoch}!")
-                print(f"   Best Segmentation Loss: {best_orig_seg_loss:.6f}")
+                # --- 保存最佳模型 (根據 Pixel-level AUROC) ---
+                # 僅在 pixel_auroc 不是 NaN 時進行比較
+                if not np.isnan(
+                        pixel_auroc) and pixel_auroc > best_pixel_auroc:
+                    best_pixel_auroc = pixel_auroc
+                    # best_auroc_epoch = epoch # 可以保存 epoch 號碼
+                    save_path = os.path.join(
+                        checkpoint_dir,
+                        f"{obj_name}_best_auroc.pckl")  # 建議更名以區分
+                    torch.save(student_model.state_dict(), save_path)
+                    print(
+                        f"✅ New best model saved at epoch {epoch} based on Pixel-level AUROC!"
+                    )
+                    print(f"   Best Pixel-level AUROC: {best_pixel_auroc:.4f}")
+
+            # # --- 保存最佳模型 ---
+            # if avg_orig_seg_loss < best_orig_seg_loss:
+            #     best_orig_seg_loss = avg_orig_seg_loss
+            #     save_path = os.path.join(checkpoint_dir,
+            #                              f"{obj_name}_best.pckl")
+            #     torch.save(student_model.state_dict(), save_path)
+            #     print(f"✅ New best model saved at epoch {epoch}!")
+            #     print(f"   Best Segmentation Loss: {best_orig_seg_loss:.6f}")
 
         torch.cuda.empty_cache()
 
