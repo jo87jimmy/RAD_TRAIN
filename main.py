@@ -547,7 +547,7 @@ def main(obj_names, args):
                             "anomaly_mask"].to(device).float()
                         aug_gray_batch_val = sample_batched_val[
                             "augmented_image"].to(device)
-                        print(f"Epoch {epoch}, Batch {i_batch_val}:")
+                        # print(f"Epoch {epoch}, Batch {i_batch_val}:")
                         # print(
                         #     f"  input_image_val shape: {input_image_val.shape}"
                         # )
