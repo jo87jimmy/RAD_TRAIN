@@ -408,8 +408,8 @@ def main(obj_names, args):
         # --- 超參數定義 ---
         lambda_l2 = 1.0
         lambda_ssim = 1.0
-        lambda_segment = 1.0
-        lambda_distill = 0.5  # 蒸餾損失權重，作為輔助項
+        lambda_segment = 1.5
+        lambda_distill = 0.2  # 蒸餾損失權重，作為輔助項
 
         best_loss = float("inf")
         best_orig_seg_loss = float('inf')
