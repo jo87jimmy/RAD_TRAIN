@@ -526,7 +526,7 @@ def main(obj_names, args):
             # 計算平均損失
             avg_total_loss = epoch_loss / num_batches
             avg_orig_seg_loss = epoch_orig_seg_loss / num_batches
-
+            print("-" * 50)
             print(f"Epoch {epoch} Summary:")
             print(f"  - Average Total Loss    : {avg_total_loss:.6f}")
             print(f"  - Average Seg Loss      : {avg_orig_seg_loss:.6f}")
@@ -548,20 +548,20 @@ def main(obj_names, args):
                         aug_gray_batch_val = sample_batched_val[
                             "augmented_image"].to(device)
                         print(f"Epoch {epoch}, Batch {i_batch_val}:")
-                        print(
-                            f"  input_image_val shape: {input_image_val.shape}"
-                        )
-                        print(
-                            f"  ground_truth_mask_val shape: {ground_truth_mask_val.shape}"
-                        )
+                        # print(
+                        #     f"  input_image_val shape: {input_image_val.shape}"
+                        # )
+                        # print(
+                        #     f"  ground_truth_mask_val shape: {ground_truth_mask_val.shape}"
+                        # )
 
                         # 直接將原始的 input_image_val (3通道) 傳入模型
                         _, student_seg_map_val_raw, _ = student_model(
                             input_image_val, return_feats=True)  # 使用灰度圖作為輸入
 
-                        print(
-                            f"  student_seg_map_val_raw shape: {student_seg_map_val_raw.shape}"
-                        )
+                        # print(
+                        #     f"  student_seg_map_val_raw shape: {student_seg_map_val_raw.shape}"
+                        # )
                         student_seg_map_val = student_seg_map_val_raw[:,
                                                                       1, :, :]
                         student_seg_map_val = student_seg_map_val.unsqueeze(
@@ -573,12 +573,12 @@ def main(obj_names, args):
                         all_gt_masks.append(
                             ground_truth_mask_val.cpu().numpy())
 
-                print(
-                    f"  Total all_pred_masks elements: {np.concatenate(all_pred_masks, axis=0).flatten().shape[0]}"
-                )
-                print(
-                    f"  Total all_gt_masks elements: {np.concatenate(all_gt_masks, axis=0).flatten().shape[0]}"
-                )
+                # print(
+                #     f"  Total all_pred_masks elements: {np.concatenate(all_pred_masks, axis=0).flatten().shape[0]}"
+                # )
+                # print(
+                #     f"  Total all_gt_masks elements: {np.concatenate(all_gt_masks, axis=0).flatten().shape[0]}"
+                # )
                 # 將所有批次的結果串接成一個大陣列
                 all_pred_masks = np.concatenate(all_pred_masks, axis=0)
                 all_gt_masks = np.concatenate(all_gt_masks, axis=0)
@@ -588,11 +588,11 @@ def main(obj_names, args):
                 all_gt_masks_flat = all_gt_masks.flatten()
                 #將 ground truth 轉換為整數類型
                 all_gt_masks_flat = all_gt_masks_flat.astype(int)
-                print(
-                    f"  Concatenated all_pred_masks shape: {all_pred_masks.shape}"
-                )
-                print(
-                    f"  Concatenated all_gt_masks shape: {all_gt_masks.shape}")
+                # print(
+                #     f"  Concatenated all_pred_masks shape: {all_pred_masks.shape}"
+                # )
+                # print(
+                #     f"  Concatenated all_gt_masks shape: {all_gt_masks.shape}")
 
                 # 計算 P-AUROC
                 # 注意: roc_curve 需要 positive class 為 1
