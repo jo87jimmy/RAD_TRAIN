@@ -375,7 +375,7 @@ def main(obj_names, args):
                 int(args.epochs * 0.6),
                 int(args.epochs * 0.8)
             ],  # 方案B (相對值): 30%, 60%, 80%
-            gamma=0.5,  # 建議調整：每次衰減為原來的一半 (0.5)，比 0.2 更平緩
+            gamma=0.2,  # 建議調整：每次衰減為原來的一半 (0.5)，比 0.2 更平緩
             last_epoch=-1)
 
         # 定義損失函數
@@ -434,7 +434,7 @@ def main(obj_names, args):
         # --- 超參數定義 ---
         lambda_l2 = 1.0
         lambda_ssim = 1.0
-        lambda_segment = 2.5  # 分割損失權重 1.0 -> 1.5 ->
+        lambda_segment = 2.0  # 分割損失權重 1.0 -> 1.5 ->
         lambda_distill = 0.2  # 蒸餾損失權重，作為輔助項 0.5
         best_pixel_auroc = 0.0  # 初始化最佳 Pixel AUROC
         for epoch in range(args.epochs):
