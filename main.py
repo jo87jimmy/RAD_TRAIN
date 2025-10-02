@@ -450,7 +450,8 @@ def main(obj_names, args):
                 input_image = sample_batched["image"].to(device)
                 ground_truth_mask = sample_batched["anomaly_mask"].to(
                     device).float()
-                aug_gray_batch = sample_batched["augmented_image"].to(device)
+                aug_gray_batch = sample_batched["augmented_image"].to(
+                    device)  #增強後的彩色圖像
 
                 # --- 教師網路前向傳播 ---
                 with torch.no_grad():
@@ -507,20 +508,20 @@ def main(obj_names, args):
                 total_loss.backward()
                 optimizer.step()
 
-                # --- 視覺化 ---
-                if i_batch % 100 == 0:
-                    visualize_predictions(
-                        teacher_model, student_model, sample_batched, device,
-                        os.path.join(save_root,
-                                     f"vis_epoch_{epoch}_batch_{i_batch}"))
+                # # --- 視覺化 ---
+                # if i_batch % 100 == 0:
+                #     visualize_predictions(
+                #         teacher_model, student_model, sample_batched, device,
+                #         os.path.join(save_root,
+                #                      f"vis_epoch_{epoch}_batch_{i_batch}"))
 
-                if i_batch % 500 == 0:
-                    detailed_diagnostic_visualization(
-                        teacher_model, student_model, loss_focal,
-                        sample_batched, device,
-                        os.path.join(save_root,
-                                     f"diag_epoch_{epoch}_batch_{i_batch}"),
-                        epoch, i_batch)
+                # if i_batch % 500 == 0:
+                #     detailed_diagnostic_visualization(
+                #         teacher_model, student_model, loss_focal,
+                #         sample_batched, device,
+                #         os.path.join(save_root,
+                #                      f"diag_epoch_{epoch}_batch_{i_batch}"),
+                #         epoch, i_batch)
 
                 # --- 累加損失統計 ---
                 epoch_loss += total_loss.item()
