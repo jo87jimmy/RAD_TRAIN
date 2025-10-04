@@ -362,21 +362,21 @@ def main(obj_names, args):
                                      list(feature_aligns.parameters()),
                                      lr=args.lr)
         # 設定學習率調整策略，使用 MultiStepLR(一開始大步走，後面小步走)
-        scheduler = optim.lr_scheduler.MultiStepLR(
-            optimizer,  # 需要調整的優化器
-            [args.epochs * 0.8, args.epochs * 0.9],  # 在訓練 80% 和 90% 時調整學習率
-            gamma=0.2,  # 每次調整時學習率乘上 0.2
-            last_epoch=-1)  # 從頭開始計算學習率
         # scheduler = optim.lr_scheduler.MultiStepLR(
-        #     optimizer,
-        #     # milestones=[30, 60, 80], # 方案A：在 30, 60, 80 epoch 時衰減
-        #     milestones=[
-        #         int(args.epochs * 0.3),
-        #         int(args.epochs * 0.6),
-        #         int(args.epochs * 0.8)
-        #     ],  # 方案B (相對值): 30%, 60%, 80%
-        #     gamma=0.2,  # 建議調整：每次衰減為原來的一半 (0.5)，比 0.2 更平緩
-        #     last_epoch=-1)
+        #     optimizer,  # 需要調整的優化器
+        #     [args.epochs * 0.8, args.epochs * 0.9],  # 在訓練 80% 和 90% 時調整學習率
+        #     gamma=0.2,  # 每次調整時學習率乘上 0.2
+        #     last_epoch=-1)  # 從頭開始計算學習率
+        scheduler = optim.lr_scheduler.MultiStepLR(
+            optimizer,
+            # milestones=[30, 60, 80], # 方案A：在 30, 60, 80 epoch 時衰減
+            milestones=[
+                int(args.epochs * 0.3),
+                int(args.epochs * 0.6),
+                int(args.epochs * 0.8)
+            ],  # 方案B (相對值): 30%, 60%, 80%
+            gamma=0.2,  # 建議調整：每次衰減為原來的一半 (0.5)，比 0.2 更平緩
+            last_epoch=-1)
 
         # 定義損失函數
         loss_focal = FocalLoss()  #解決類別不平衡、強化模型對難分類樣本的學習。
