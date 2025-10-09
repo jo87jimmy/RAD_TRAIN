@@ -4,6 +4,98 @@ import torch.nn.functional as F
 
 
 # ==============================================================================
+# Main Anomaly Detection Model
+# ==============================================================================
+class AnomalyDetectionModel(nn.Module):
+    # 主異常檢測模型，包含「重建子網路」與「判別子網路」
+    # 此結構對應到 DRAEM 的架構：一個學習重建正常樣本的自編碼器 + 一個判斷異常區域的分割網路
+
+    def __init__(self, recon_in, recon_out, recon_base, disc_in, disc_out,
+                 disc_base):
+        super(AnomalyDetectionModel, self).__init__()
+        # 初始化父類別 nn.Module，確保 PyTorch 正確建立模型結構
+
+        # 建立「重建子網路」（ReconstructiveSubNetwork）
+        self.reconstruction_subnet = ReconstructiveSubNetwork(
+            in_channels=recon_in,  # 輸入通道數（例如 RGB 為 3）
+            out_channels=recon_out,  # 輸出通道數（通常也是 3）
+            base_width=recon_base)  # 基礎通道寬度（控制模型容量，例如 128）
+
+        # 建立「判別子網路」（DiscriminativeSubNetwork）
+        self.discriminator_subnet = DiscriminativeSubNetwork(
+            in_channels=disc_in,  # 輸入通道數（通常是原圖 + 重建圖拼接後的通道數，因此為 6）
+            out_channels=disc_out,  # 輸出通道數（應為 1，用來產生異常機率圖）
+            base_channels=disc_base)  # 基礎通道寬度（控制分割網路容量，例如 64）
+
+    def forward(self, x, return_feats=False):
+        # 定義模型的前向傳遞流程（forward propagation）
+
+        # Step 1: 通過重建子網路，嘗試重建輸入圖像
+        recon_image = self.reconstruction_subnet(x)
+
+        # Step 2: 將原始輸入圖像 x 與重建圖像 recon_image 在通道維度上拼接
+        #         用於提供「正常圖像」與「重建結果」之間的差異給判別網路
+        disc_input = torch.cat((x, recon_image), dim=1)
+
+        # Step 3: 根據是否需要返回特徵，執行不同的流程
+        if return_feats:
+            # 若需要回傳中間特徵（例如用於蒸餾或可視化）
+            seg_map, features = self.discriminator_subnet(disc_input,
+                                                          return_feats=True)
+            # 回傳重建影像、分割結果（異常圖）、以及判別子網路的多層特徵
+            return recon_image, seg_map, features
+        else:
+            # 若不需要特徵，只回傳最終分割圖
+            seg_map = self.discriminator_subnet(disc_input, return_feats=False)
+            # 回傳重建影像與異常區域分割圖
+            return recon_image, seg_map
+
+
+class ReconstructiveSubNetwork(nn.Module):
+
+    def __init__(self, in_channels=3, out_channels=3, base_width=128):
+        super(ReconstructiveSubNetwork, self).__init__()
+        self.encoder = EncoderReconstructive(in_channels, base_width)
+        # Ensure out_channels is passed correctly
+        self.decoder = DecoderReconstructive(base_width,
+                                             out_channels=out_channels)
+
+    def forward(self, x):
+        features = self.encoder(x)
+        # 解碼器只使用最後一層特徵來重建圖像
+        output = self.decoder(features[-1])
+        return output
+
+
+class DiscriminativeSubNetwork(nn.Module):
+
+    def __init__(self,
+                 in_channels=6,
+                 out_channels=1,
+                 base_channels=64):  # out_channels corrected to 1
+        super(DiscriminativeSubNetwork, self).__init__()
+        self.encoder_segment = EncoderDiscriminative(in_channels,
+                                                     base_channels)
+        self.decoder_segment = DecoderDiscriminative(
+            base_channels,
+            out_channels=out_channels)  # Pass corrected out_channels
+        self.sigmoid = nn.Sigmoid()  # Add sigmoid for probability output
+
+    def forward(self, x, return_feats=False):
+        b1, b2, b3, b4, b5, b6 = self.encoder_segment(x)
+        # Raw logits from the decoder
+        raw_seg_map = self.decoder_segment(b1, b2, b3, b4, b5, b6)
+        # Apply sigmoid to get probabilities for the anomaly map
+        seg_map = self.sigmoid(raw_seg_map)
+
+        if return_feats:
+            features = [b1, b2, b3, b4, b5, b6]
+            return seg_map, features
+        else:
+            return seg_map
+
+
+# ==============================================================================
 # Helper Blocks (Reconstructive SubNetwork)
 # ==============================================================================
 class EncoderReconstructive(nn.Module):
@@ -142,22 +234,6 @@ class DecoderReconstructive(nn.Module):
 
         out = self.fin_out(db4)
         return out
-
-
-class ReconstructiveSubNetwork(nn.Module):
-
-    def __init__(self, in_channels=3, out_channels=3, base_width=128):
-        super(ReconstructiveSubNetwork, self).__init__()
-        self.encoder = EncoderReconstructive(in_channels, base_width)
-        # Ensure out_channels is passed correctly
-        self.decoder = DecoderReconstructive(base_width,
-                                             out_channels=out_channels)
-
-    def forward(self, x):
-        features = self.encoder(x)
-        # 解碼器只使用最後一層特徵來重建圖像
-        output = self.decoder(features[-1])
-        return output
 
 
 # ==============================================================================
@@ -327,62 +403,3 @@ class DecoderDiscriminative(nn.Module):
 
         out = self.fin_out(db4)
         return out
-
-
-class DiscriminativeSubNetwork(nn.Module):
-
-    def __init__(self,
-                 in_channels=6,
-                 out_channels=1,
-                 base_channels=64):  # out_channels corrected to 1
-        super(DiscriminativeSubNetwork, self).__init__()
-        self.encoder_segment = EncoderDiscriminative(in_channels,
-                                                     base_channels)
-        self.decoder_segment = DecoderDiscriminative(
-            base_channels,
-            out_channels=out_channels)  # Pass corrected out_channels
-        self.sigmoid = nn.Sigmoid()  # Add sigmoid for probability output
-
-    def forward(self, x, return_feats=False):
-        b1, b2, b3, b4, b5, b6 = self.encoder_segment(x)
-        # Raw logits from the decoder
-        raw_seg_map = self.decoder_segment(b1, b2, b3, b4, b5, b6)
-        # Apply sigmoid to get probabilities for the anomaly map
-        seg_map = self.sigmoid(raw_seg_map)
-
-        if return_feats:
-            features = [b1, b2, b3, b4, b5, b6]
-            return seg_map, features
-        else:
-            return seg_map
-
-
-# ==============================================================================
-# Main Anomaly Detection Model
-# ==============================================================================
-class AnomalyDetectionModel(nn.Module):
-
-    def __init__(self, recon_in, recon_out, recon_base, disc_in, disc_out,
-                 disc_base):
-        super(AnomalyDetectionModel, self).__init__()
-        self.reconstruction_subnet = ReconstructiveSubNetwork(
-            in_channels=recon_in,
-            out_channels=recon_out,
-            base_width=recon_base)
-        self.discriminator_subnet = DiscriminativeSubNetwork(
-            in_channels=disc_in,
-            out_channels=
-            disc_out,  # This should now be 1 due to the change in DiscriminativeSubNetwork
-            base_channels=disc_base)
-
-    def forward(self, x, return_feats=False):
-        recon_image = self.reconstruction_subnet(x)
-        disc_input = torch.cat((x, recon_image), dim=1)
-
-        if return_feats:
-            seg_map, features = self.discriminator_subnet(disc_input,
-                                                          return_feats=True)
-            return recon_image, seg_map, features
-        else:
-            seg_map = self.discriminator_subnet(disc_input, return_feats=False)
-            return recon_image, seg_map
